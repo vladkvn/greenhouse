@@ -13,9 +13,16 @@
  *
  * WiFi: set STASSID / STAPSK below (or -DSTASSID / -DSTAPSK at build time).
  * Optional: COMMAND_TOKEN — if non-empty, require ?token=... on /command
+ *
+ * Onboard LED (usually GPIO2, active LOW): steady = Wi-Fi connected, blink = not connected.
+ * A separate power LED on the board may not be controlled by this sketch.
  */
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+
+#ifndef LED_BUILTIN
+#define LED_BUILTIN 2
+#endif
 
 #ifndef STASSID
 #define STASSID "Autosnap"
@@ -38,6 +45,9 @@ unsigned long lastSensorMillis = 0;
 
 unsigned long wifiConnectedAtMs = 0;
 unsigned long lastIpToUnoMs = 0;
+
+unsigned long wifiLedBlinkMs = 0;
+bool wifiLedBlinkPhase = false;
 
 String rxLine;
 const size_t kMaxLine = 96;
@@ -146,6 +156,35 @@ void ingestSerialLine(const String &line) {
   lastSensorMillis = millis();
 }
 
+static void ledInit() {
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH);
+}
+
+static void ledSetWifiConnected(bool connected) {
+  if (connected) {
+    digitalWrite(LED_BUILTIN, LOW);
+  }
+}
+
+static void ledUpdateDisconnectedBlink() {
+  const unsigned long t = millis();
+  if (t - wifiLedBlinkMs < 400) {
+    return;
+  }
+  wifiLedBlinkMs = t;
+  wifiLedBlinkPhase = !wifiLedBlinkPhase;
+  digitalWrite(LED_BUILTIN, wifiLedBlinkPhase ? LOW : HIGH);
+}
+
+static void updateWifiStatusLed() {
+  if (WiFi.status() == WL_CONNECTED) {
+    ledSetWifiConnected(true);
+    return;
+  }
+  ledUpdateDisconnectedBlink();
+}
+
 void pollUartFromUno() {
   while (Serial.available() > 0) {
     const char c = static_cast<char>(Serial.read());
@@ -169,6 +208,8 @@ void setup() {
   Serial.begin(UART_BAUD);
   Serial.setTimeout(10);
 
+  ledInit();
+
   WiFi.mode(WIFI_STA);
   WiFi.begin(STASSID, STAPSK);
   unsigned long wifiStarted = millis();
@@ -178,9 +219,11 @@ void setup() {
       delay(1000);
       ESP.restart();
     }
+    updateWifiStatusLed();
     delay(250);
   }
 
+  ledSetWifiConnected(true);
   wifiConnectedAtMs = millis();
   delay(200);
   sendLocalIpToUno();
@@ -197,6 +240,7 @@ void setup() {
 void loop() {
   server.handleClient();
   pollUartFromUno();
+  updateWifiStatusLed();
 
   const unsigned long now = millis();
   if (now - wifiConnectedAtMs < 120000UL && now - lastIpToUnoMs >= 4000UL) {
