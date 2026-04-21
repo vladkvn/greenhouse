@@ -32,7 +32,7 @@ flowchart LR
 | Control domain | `packages/control-domain` | Domain model for control logic. |
 | ML | `services/ml` | Python models and inference (future). |
 | Vision | `services/vision` | Python CV pipelines (future). |
-| Firmware | `firmware/esp32-node` | Edge device firmware (PlatformIO). |
+| Firmware | `firmware/arduino-uno-node` | Test edge node: sensors → MQTT telemetry, command display (PlatformIO). |
 | Infra | `infra/` | Local Postgres/TimescaleDB, Mosquitto, Adminer. |
 
 ## Next implementation focus
