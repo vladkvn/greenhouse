@@ -1,19 +1,29 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <SoftwareSerial.h>
+#include <Servo.h>
 
 // UART to ESP8266 (Petoi): Uno D2 = RX <- ESP TX, Uno D3 = TX -> ESP RX (use 5V to 3.3V level shift on D3)
 // Speed 9600: stable for SoftwareSerial on Uno; must match esp8266-web-bridge UART_BAUD.
 // USB Serial Monitor on THIS board: 9600 baud (not the ESP8266's rate if different).
 //
 // Bump when changing this sketch (printed on boot at 9600 baud).
-static const char FIRMWARE_VERSION[] = "arduino-test/0.1.0";
+static const char FIRMWARE_VERSION[] = "arduino-test/0.2.0";
 
 SoftwareSerial espLink(2, 3);
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 const int sensorPin = A0;
+
+// SG90 (or compatible) — сигнал PWM на D9; при необходимости поменяйте углы местами
+static const int VENT_SERVO_PIN = 9;
+static const int VENT_ANGLE_CLOSED = 0;
+static const int VENT_ANGLE_OPEN = 180;
+
+Servo ventServo;
+/** true = вентиляция открыта (VENT_OPEN), false = закрыта */
+bool ventFullyOpen = false;
 
 static const long ESP_BAUD = 9600;
 static const unsigned long SENSOR_INTERVAL_MS = 500;
@@ -54,7 +64,8 @@ static void padLineTo16(const String &text) {
 static void drawUi(int value);
 
 static bool isAllowedCommand(const String &cmd) {
-  return cmd == F("PING") || cmd == F("RELAY_ON") || cmd == F("RELAY_OFF");
+  return cmd == F("PING") || cmd == F("RELAY_ON") || cmd == F("RELAY_OFF") ||
+         cmd == F("VENT_OPEN") || cmd == F("VENT_CLOSE");
 }
 
 static bool looksLikeIpv4Text(const String &s) {
@@ -111,6 +122,14 @@ static void handleCommand(const String &cmd) {
     relayOn = true;
   } else if (cmd == F("RELAY_OFF")) {
     relayOn = false;
+  } else if (cmd == F("VENT_OPEN")) {
+    ventFullyOpen = true;
+    ventServo.write(VENT_ANGLE_OPEN);
+    Serial.println(F("cmd:VENT_OPEN"));
+  } else if (cmd == F("VENT_CLOSE")) {
+    ventFullyOpen = false;
+    ventServo.write(VENT_ANGLE_CLOSED);
+    Serial.println(F("cmd:VENT_CLOSE"));
   }
 
   drawUi(lastSensorValue);
@@ -138,9 +157,11 @@ static void drawLine1Status(int value) {
   } else {
     lcd.print(F("DRY"));
   }
+  lcd.print(F(" V:"));
+  lcd.print(ventFullyOpen ? F("O") : F("C"));
   lcd.print(F(" R:"));
-  lcd.print(relayOn ? F("ON ") : F("OFF"));
-  lcd.print(F("    "));
+  lcd.print(relayOn ? F("ON") : F("OFF"));
+  lcd.print(F("  "));
 }
 
 static void processIncomingFromEsp() {
@@ -203,6 +224,9 @@ void setup() {
   lcd.print(F("Starting..."));
   delay(1000);
   lcd.clear();
+
+  ventServo.attach(VENT_SERVO_PIN);
+  ventServo.write(VENT_ANGLE_CLOSED);
 
   lastSensorMs = millis();
   lastSensorValue = analogRead(sensorPin);

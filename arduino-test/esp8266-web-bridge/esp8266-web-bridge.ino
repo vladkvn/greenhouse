@@ -141,7 +141,8 @@ static bool tokenOk() {
 }
 
 static bool allowedCommand(const String &cmd) {
-  return cmd == F("PING") || cmd == F("RELAY_ON") || cmd == F("RELAY_OFF");
+  return cmd == F("PING") || cmd == F("RELAY_ON") || cmd == F("RELAY_OFF") ||
+         cmd == F("VENT_OPEN") || cmd == F("VENT_CLOSE");
 }
 
 static void forwardCommandToUno(const String &cmd) {

@@ -10,6 +10,12 @@ export class SendCommandDto {
   deviceId: string;
 
   @IsString()
-  @IsIn(["PING", "RELAY_ON", "RELAY_OFF"])
+  @IsIn([
+    "PING",
+    "RELAY_ON",
+    "RELAY_OFF",
+    "VENT_OPEN",
+    "VENT_CLOSE",
+  ])
   cmd: string;
 }

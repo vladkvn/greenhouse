@@ -29,7 +29,7 @@ Small NestJS service that accepts **commands for a device by `deviceId`**, looks
 }
 ```
 
-Allowed `cmd` values: `PING`, `RELAY_ON`, `RELAY_OFF` (same whitelist as the firmware).
+Allowed `cmd` values: `PING`, `RELAY_ON`, `RELAY_OFF`, `VENT_OPEN`, `VENT_CLOSE` (same whitelist as the firmware).
 
 **Response** (example): `deviceHttpStatus` is the HTTP status from the ESP8266.
 
