@@ -22,6 +22,9 @@ unsigned long lastSensorMs = 0;
 
 int lastSensorValue = 0;
 
+bool firstCommandHandled = false;
+String espAnnounceIp;
+
 String pendingCmdDisplay;
 unsigned long cmdDisplayUntilMs = 0;
 static const unsigned long CMD_LCD_DURATION_MS = 2500;
@@ -43,10 +46,42 @@ static bool isAllowedCommand(const String &cmd) {
   return cmd == F("PING") || cmd == F("RELAY_ON") || cmd == F("RELAY_OFF");
 }
 
+static bool looksLikeIpv4Text(const String &s) {
+  if (s.length() < 7 || s.length() > 15) {
+    return false;
+  }
+  for (unsigned int i = 0; i < s.length(); i++) {
+    const char c = s[i];
+    if ((c >= '0' && c <= '9') || c == '.') {
+      continue;
+    }
+    return false;
+  }
+  unsigned int dots = 0;
+  for (unsigned int i = 0; i < s.length(); i++) {
+    if (s[i] == '.') {
+      dots++;
+    }
+  }
+  return dots >= 3;
+}
+
+static void handleIpAnnounce(const String &ipText) {
+  if (firstCommandHandled) {
+    return;
+  }
+  if (!looksLikeIpv4Text(ipText)) {
+    return;
+  }
+  espAnnounceIp = ipText;
+  drawUi(lastSensorValue);
+}
+
 static void handleCommand(const String &cmd) {
   if (!isAllowedCommand(cmd)) {
     return;
   }
+  firstCommandHandled = true;
   pendingCmdDisplay = cmd;
   cmdDisplayUntilMs = millis() + CMD_LCD_DURATION_MS;
 
@@ -70,6 +105,14 @@ static void drawLine1Status(int value) {
     padLineTo16(line);
     return;
   }
+  if (!firstCommandHandled) {
+    if (espAnnounceIp.length() == 0) {
+      padLineTo16(String(F("WiFi...")));
+    } else {
+      padLineTo16(espAnnounceIp);
+    }
+    return;
+  }
   if (value > 500) {
     lcd.print(F("WET"));
   } else {
@@ -89,6 +132,8 @@ static void processIncomingFromEsp() {
     if (c == '\n') {
       if (rxLine.startsWith(F("C,"))) {
         handleCommand(rxLine.substring(2));
+      } else if (rxLine.startsWith(F("I,"))) {
+        handleIpAnnounce(rxLine.substring(2));
       }
       rxLine = "";
       continue;
@@ -134,6 +179,8 @@ void setup() {
   lcd.clear();
 
   lastSensorMs = millis();
+  lastSensorValue = analogRead(sensorPin);
+  drawUi(lastSensorValue);
 }
 
 void loop() {

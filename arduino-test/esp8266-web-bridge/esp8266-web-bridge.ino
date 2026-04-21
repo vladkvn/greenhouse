@@ -8,6 +8,7 @@
  *
  * UART protocol (newline-terminated lines):
  *   Uno -> ESP: telemetry "T,<0..1023>"
+ *   ESP -> Uno: after Wi-Fi connect, once: "I,<IPv4>" (shown on Uno LCD line 2 until first command)
  *   ESP -> Uno: command "C,<NAME>" (same whitelist as in arduino-test.ino)
  *
  * WiFi: set STASSID / STAPSK below (or -DSTASSID / -DSTAPSK at build time).
@@ -59,6 +60,13 @@ static bool allowedCommand(const String &cmd) {
 static void forwardCommandToUno(const String &cmd) {
   Serial.print(F("C,"));
   Serial.print(cmd);
+  Serial.print(F("\n"));
+}
+
+static void sendLocalIpToUno() {
+  const IPAddress lip = WiFi.localIP();
+  Serial.print(F("I,"));
+  Serial.print(lip.toString());
   Serial.print(F("\n"));
 }
 
@@ -169,8 +177,8 @@ void setup() {
     delay(250);
   }
 
-  Serial.println();
-  Serial.println(WiFi.localIP());
+  delay(100);
+  sendLocalIpToUno();
 
   server.on(F("/"), handleRoot);
   server.on(F("/sensor"), handleSensor);
