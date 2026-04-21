@@ -16,6 +16,8 @@
  *
  * Onboard LED (usually GPIO2, active LOW): steady = Wi-Fi connected, blink = not connected.
  * A separate power LED on the board may not be controlled by this sketch.
+ *
+ * Debug: connect USB to this module, Serial Monitor @ 9600 — lines prefixed [wifi].
  */
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
@@ -25,7 +27,7 @@
 #endif
 
 #ifndef STASSID
-#define STASSID "Autosnap"
+#define STASSID "Autasnap"
 #endif
 #ifndef STAPSK
 #define STAPSK "pryF6vy9"
@@ -51,6 +53,55 @@ bool wifiLedBlinkPhase = false;
 
 String rxLine;
 const size_t kMaxLine = 96;
+
+static void printWlStatus(wl_status_t s) {
+  switch (s) {
+    case WL_IDLE_STATUS:
+      Serial.print(F("IDLE"));
+      break;
+    case WL_NO_SSID_AVAIL:
+      Serial.print(F("NO_SSID"));
+      break;
+    case WL_SCAN_COMPLETED:
+      Serial.print(F("SCAN_DONE"));
+      break;
+    case WL_CONNECTED:
+      Serial.print(F("CONNECTED"));
+      break;
+    case WL_CONNECT_FAILED:
+      Serial.print(F("CONNECT_FAILED"));
+      break;
+    case WL_CONNECTION_LOST:
+      Serial.print(F("CONNECTION_LOST"));
+      break;
+    case WL_DISCONNECTED:
+      Serial.print(F("DISCONNECTED"));
+      break;
+    default:
+      Serial.print(F("code "));
+      Serial.print(static_cast<int>(s));
+      break;
+  }
+}
+
+static void setupWifiSerialLogging() {
+  WiFi.onStationModeConnected([](const WiFiEventStationModeConnected &evt) {
+    Serial.print(F("[wifi] associated BSSID channel="));
+    Serial.println(evt.channel);
+  });
+  WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP &evt) {
+    Serial.print(F("[wifi] DHCP ok ip="));
+    Serial.print(evt.ip);
+    Serial.print(F(" mask="));
+    Serial.print(evt.mask);
+    Serial.print(F(" gw="));
+    Serial.println(evt.gw);
+  });
+  WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected &evt) {
+    Serial.print(F("[wifi] disconnected reason="));
+    Serial.println(evt.reason);
+  });
+}
 
 static void sendCorsJson(int status, const String &body) {
   server.sendHeader(F("Access-Control-Allow-Origin"), F("*"));
@@ -208,16 +259,35 @@ void setup() {
   Serial.begin(UART_BAUD);
   Serial.setTimeout(10);
 
+  Serial.println();
+  Serial.println(F("[wifi] esp8266-web-bridge boot"));
+  Serial.print(F("[wifi] target SSID="));
+  Serial.println(STASSID);
+
   ledInit();
 
+  setupWifiSerialLogging();
+
   WiFi.mode(WIFI_STA);
+  Serial.println(F("[wifi] WiFi.mode(STA), beginning..."));
   WiFi.begin(STASSID, STAPSK);
+
   unsigned long wifiStarted = millis();
+  unsigned long lastStatusLog = 0;
   while (WiFi.status() != WL_CONNECTED) {
     if (millis() - wifiStarted > 60000UL) {
+      Serial.println(F("[wifi] timeout 60s, restart"));
       WiFi.disconnect();
       delay(1000);
       ESP.restart();
+    }
+    if (millis() - lastStatusLog >= 3000UL) {
+      lastStatusLog = millis();
+      Serial.print(F("[wifi] waiting "));
+      Serial.print((millis() - wifiStarted) / 1000UL);
+      Serial.print(F("s status="));
+      printWlStatus(WiFi.status());
+      Serial.println();
     }
     updateWifiStatusLed();
     delay(250);
@@ -225,6 +295,11 @@ void setup() {
 
   ledSetWifiConnected(true);
   wifiConnectedAtMs = millis();
+  Serial.print(F("[wifi] linked. RSSI="));
+  Serial.print(WiFi.RSSI());
+  Serial.print(F(" dBm localIP="));
+  Serial.println(WiFi.localIP());
+
   delay(200);
   sendLocalIpToUno();
   lastIpToUnoMs = millis();
@@ -235,6 +310,7 @@ void setup() {
   server.on(F("/command"), HTTP_POST, handleCommand);
   server.on(F("/command"), HTTP_OPTIONS, handleCommandOptions);
   server.begin();
+  Serial.println(F("[wifi] HTTP server :80"));
 }
 
 void loop() {
