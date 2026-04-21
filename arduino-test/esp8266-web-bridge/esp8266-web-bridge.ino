@@ -8,15 +8,17 @@
  *
  * UART protocol (newline-terminated lines):
  *   Uno -> ESP: telemetry "T,<0..1023>"
+ *   Uno -> ESP: "N,REG" — выполнить POST /devices/register (инициирует только Uno)
+ *   Uno -> ESP: "N,S,<0..1023>" — POST /readings с payload.moisture = значение (инициирует только Uno)
  *   ESP -> Uno: "I,<IPv4>" repeated for ~2 min every 4 s (Uno may miss first line; LCD line 2 until first command)
- *   ESP -> Uno: command "C,<NAME>" (same whitelist as in arduino-test.ino)
+ *   ESP -> Uno: "C,<NAME>" — команда с HTTP /command (обрабатывает Uno)
+ *   ESP -> Uno: "K,REG,<httpCode>" / "K,S,<httpCode>" — ответ по запросам N,* (опционально для отладки)
  *
  * WiFi: set STASSID / STAPSK below (or -DSTASSID / -DSTAPSK at build time).
  * Optional: COMMAND_TOKEN — if non-empty, require ?token=... on /command
  *
- * GreenHouse Nest API (apps/api): set GH_API_HOST + GH_API_KEY (and GH_DEVICE_ID) to register
- * on boot (POST /devices/register) and send telemetry every GH_READINGS_INTERVAL_MS (POST /readings
- * with payload {"moisture":<last T,>}). Leave GH_API_HOST empty to disable outbound HTTP.
+ * GreenHouse Nest API: ESP только исполняет HTTP по строкам N,* с UART; расписание и решение «когда слать»
+ * задаётся в arduino-test.ino. Задайте GH_API_HOST + GH_API_KEY на ESP (как endpoint для клиента).
  *
  * Onboard LED (usually GPIO2, active LOW): steady = Wi-Fi connected, blink = not connected.
  * A separate power LED on the board may not be controlled by this sketch.
@@ -33,10 +35,10 @@
 #endif
 
 #ifndef STASSID
-#define STASSID "Autasnap"
+#define STASSID "YOUR_WIFI_SSID"
 #endif
 #ifndef STAPSK
-#define STAPSK "pryF6vy9"
+#define STAPSK "YOUR_WIFI_PASSWORD"
 #endif
 
 #ifndef COMMAND_TOKEN
@@ -45,19 +47,16 @@
 
 // Nest API (see apps/api): host = PC or server IP in LAN, same API_KEY as in apps/api/.env
 #ifndef GH_API_HOST
-#define GH_API_HOST "192.168.1.34"
+#define GH_API_HOST ""
 #endif
 #ifndef GH_API_PORT
 #define GH_API_PORT 3000
 #endif
 #ifndef GH_API_KEY
-#define GH_API_KEY "TEST_API_KEY"
+#define GH_API_KEY ""
 #endif
 #ifndef GH_DEVICE_ID
 #define GH_DEVICE_ID "gh-node-1"
-#endif
-#ifndef GH_READINGS_INTERVAL_MS
-#define GH_READINGS_INTERVAL_MS 60000UL
 #endif
 
 // Same baud as arduino-test.ino espLink (9600 is reliable for Uno SoftwareSerial).
@@ -76,9 +75,6 @@ bool wifiLedBlinkPhase = false;
 
 String rxLine;
 const size_t kMaxLine = 96;
-
-unsigned long lastReadingPostMs = 0;
-wl_status_t lastWifiStatus = WL_DISCONNECTED;
 
 static void printWlStatus(wl_status_t s) {
   switch (s) {
@@ -211,28 +207,6 @@ void handleRoot() {
   server.send(302, F("text/plain"), F(""));
 }
 
-void ingestSerialLine(const String &line) {
-  if (line.length() == 0) {
-    return;
-  }
-  if (!line.startsWith(F("T,"))) {
-    return;
-  }
-  const String rest = line.substring(2);
-  if (rest.length() == 0) {
-    return;
-  }
-  for (unsigned int i = 0; i < rest.length(); i++) {
-    const char c = rest[i];
-    if (c < '0' || c > '9') {
-      return;
-    }
-  }
-  const int v = rest.toInt();
-  lastSensorValue = v;
-  lastSensorMillis = millis();
-}
-
 static void ledInit() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
@@ -281,9 +255,19 @@ static void logHttpCode(const char *label, int httpCode) {
   Serial.println(httpCode);
 }
 
-static void tryRegisterWithBackend() {
+static void sendNestAckToUno(const __FlashStringHelper *op, int httpCode) {
+  Serial.print(F("K,"));
+  Serial.print(op);
+  Serial.print(F(","));
+  Serial.println(httpCode);
+}
+
+/** POST /devices/register — вызывается только по UART строке N,REG с Uno. */
+static int httpRegisterFromUno() {
   if (!backendConfigured()) {
-    return;
+    Serial.println(F("[api] register skipped (no GH_API_HOST/GH_API_KEY)"));
+    sendNestAckToUno(F("REG"), -1);
+    return -1;
   }
   String body = F("{\"deviceId\":\"");
   body += GH_DEVICE_ID;
@@ -294,7 +278,8 @@ static void tryRegisterWithBackend() {
   url += F("/devices/register");
   if (!http.begin(client, url)) {
     Serial.println(F("[api] register begin failed"));
-    return;
+    sendNestAckToUno(F("REG"), -2);
+    return -2;
   }
   http.addHeader(F("Content-Type"), F("application/json"));
   http.addHeader(F("X-API-Key"), GH_API_KEY);
@@ -302,16 +287,21 @@ static void tryRegisterWithBackend() {
   const int code = http.POST(body);
   http.end();
   logHttpCode("register", code);
+  sendNestAckToUno(F("REG"), code);
+  return code;
 }
 
-static void tryPostReadingToBackend() {
-  if (!backendConfigured() || lastSensorValue < 0) {
-    return;
+/** POST /readings — влажность передаёт Uno в N,S,<value>. */
+static int httpReadingFromUno(int moisture) {
+  if (!backendConfigured()) {
+    Serial.println(F("[api] readings skipped (no GH_API_HOST/GH_API_KEY)"));
+    sendNestAckToUno(F("S"), -1);
+    return -1;
   }
   String body = F("{\"deviceId\":\"");
   body += GH_DEVICE_ID;
   body += F("\",\"payload\":{\"moisture\":");
-  body += lastSensorValue;
+  body += moisture;
   body += F("}}");
   WiFiClient client;
   HTTPClient http;
@@ -319,7 +309,8 @@ static void tryPostReadingToBackend() {
   url += F("/readings");
   if (!http.begin(client, url)) {
     Serial.println(F("[api] readings begin failed"));
-    return;
+    sendNestAckToUno(F("S"), -2);
+    return -2;
   }
   http.addHeader(F("Content-Type"), F("application/json"));
   http.addHeader(F("X-API-Key"), GH_API_KEY);
@@ -327,6 +318,71 @@ static void tryPostReadingToBackend() {
   const int code = http.POST(body);
   http.end();
   logHttpCode("readings", code);
+  sendNestAckToUno(F("S"), code);
+  return code;
+}
+
+static bool allDigits(const String &s) {
+  if (s.length() == 0) {
+    return false;
+  }
+  for (unsigned int i = 0; i < s.length(); i++) {
+    const char c = s[i];
+    if (c < '0' || c > '9') {
+      return false;
+    }
+  }
+  return true;
+}
+
+static void ingestTelemetryFromUno(const String &line) {
+  if (line.length() == 0) {
+    return;
+  }
+  if (!line.startsWith(F("T,"))) {
+    return;
+  }
+  const String rest = line.substring(2);
+  if (rest.length() == 0 || !allDigits(rest)) {
+    return;
+  }
+  const int v = rest.toInt();
+  lastSensorValue = v;
+  lastSensorMillis = millis();
+}
+
+static void ingestNetworkRequestFromUno(const String &lineRaw) {
+  String line = lineRaw;
+  line.trim();
+  if (line == F("N,REG")) {
+    httpRegisterFromUno();
+    return;
+  }
+  if (!line.startsWith(F("N,S,"))) {
+    return;
+  }
+  const String rest = line.substring(4);
+  if (rest.length() == 0 || !allDigits(rest)) {
+    return;
+  }
+  const int v = rest.toInt();
+  if (v < 0 || v > 1023) {
+    return;
+  }
+  httpReadingFromUno(v);
+}
+
+static void ingestSerialLine(const String &line) {
+  if (line.length() == 0) {
+    return;
+  }
+  if (line.startsWith(F("T,"))) {
+    ingestTelemetryFromUno(line);
+    return;
+  }
+  if (line.startsWith(F("N,"))) {
+    ingestNetworkRequestFromUno(line);
+  }
 }
 
 void pollUartFromUno() {
@@ -405,13 +461,10 @@ void setup() {
   server.begin();
   Serial.println(F("[wifi] HTTP server :80"));
 
-  lastWifiStatus = WiFi.status();
   if (backendConfigured()) {
-    Serial.println(F("[api] backend enabled, registering..."));
-    tryRegisterWithBackend();
-    lastReadingPostMs = millis();
+    Serial.println(F("[api] Nest HTTP: on UART send N,REG / N,S,<0..1023> (Uno initiates)"));
   } else {
-    Serial.println(F("[api] backend disabled (set GH_API_HOST + GH_API_KEY)"));
+    Serial.println(F("[api] Nest HTTP disabled (set GH_API_HOST + GH_API_KEY on ESP)"));
   }
 }
 
@@ -421,26 +474,8 @@ void loop() {
   updateWifiStatusLed();
 
   const unsigned long now = millis();
-  const wl_status_t st = WiFi.status();
-
-  if (st == WL_CONNECTED && lastWifiStatus != WL_CONNECTED) {
-    if (backendConfigured()) {
-      Serial.println(F("[api] Wi-Fi reconnected, registering..."));
-      tryRegisterWithBackend();
-      lastReadingPostMs = millis();
-    }
-  }
-  lastWifiStatus = st;
-
   if (now - wifiConnectedAtMs < 120000UL && now - lastIpToUnoMs >= 4000UL) {
     lastIpToUnoMs = now;
     sendLocalIpToUno();
-  }
-
-  if (st == WL_CONNECTED && backendConfigured() && lastSensorValue >= 0) {
-    if (now - lastReadingPostMs >= GH_READINGS_INTERVAL_MS) {
-      lastReadingPostMs = now;
-      tryPostReadingToBackend();
-    }
   }
 }

@@ -13,9 +13,14 @@ const int sensorPin = A0;
 
 static const long ESP_BAUD = 9600;
 static const unsigned long SENSOR_INTERVAL_MS = 500;
+// Отправка в Nest API (строки N,* уходит на ESP по UART; инициатор — только Uno)
+static const unsigned long NEST_SEND_INTERVAL_MS = 60000;
 
 // Virtual relay for demo (replace with digitalWrite to a pin when hardware is wired)
 bool relayOn = false;
+
+bool nestRegisterSent = false;
+unsigned long lastNestPostMs = 0;
 
 String rxLine;
 const size_t kMaxRxLine = 64;
@@ -80,6 +85,11 @@ static void handleIpAnnounce(const String &ipText) {
   espAnnounceIp = t;
   Serial.print(F("ip:"));
   Serial.println(t);
+  if (!nestRegisterSent) {
+    nestRegisterSent = true;
+    espLink.println(F("N,REG"));
+    lastNestPostMs = millis();
+  }
   drawUi(lastSensorValue);
 }
 
@@ -140,6 +150,9 @@ static void processIncomingFromEsp() {
         handleCommand(rxLine.substring(2));
       } else if (rxLine.startsWith(F("I,"))) {
         handleIpAnnounce(rxLine.substring(2));
+      } else if (rxLine.startsWith(F("K,"))) {
+        Serial.print(F("nest:"));
+        Serial.println(rxLine);
       }
       rxLine = "";
       continue;
@@ -193,6 +206,13 @@ void loop() {
   processIncomingFromEsp();
 
   const unsigned long now = millis();
+
+  if (nestRegisterSent && (now - lastNestPostMs >= NEST_SEND_INTERVAL_MS)) {
+    lastNestPostMs = now;
+    espLink.print(F("N,S,"));
+    espLink.println(lastSensorValue);
+  }
+
   if (now - lastSensorMs >= SENSOR_INTERVAL_MS) {
     lastSensorMs = now;
     readSensorAndPublish();
