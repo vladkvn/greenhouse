@@ -18,7 +18,7 @@ const int sensorPin = A0;
 static const long ESP_BAUD = 9600;
 static const unsigned long SENSOR_INTERVAL_MS = 500;
 // Отправка в Nest API (строки N,* уходит на ESP по UART; инициатор — только Uno)
-static const unsigned long NEST_SEND_INTERVAL_MS = 60000;
+static const unsigned long NEST_SEND_INTERVAL_MS = 5000;
 
 // Virtual relay for demo (replace with digitalWrite to a pin when hardware is wired)
 bool relayOn = false;
