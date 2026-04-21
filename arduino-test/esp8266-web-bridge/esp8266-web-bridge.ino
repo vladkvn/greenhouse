@@ -14,6 +14,10 @@
  * WiFi: set STASSID / STAPSK below (or -DSTASSID / -DSTAPSK at build time).
  * Optional: COMMAND_TOKEN — if non-empty, require ?token=... on /command
  *
+ * GreenHouse Nest API (apps/api): set GH_API_HOST + GH_API_KEY (and GH_DEVICE_ID) to register
+ * on boot (POST /devices/register) and send telemetry every GH_READINGS_INTERVAL_MS (POST /readings
+ * with payload {"moisture":<last T,>}). Leave GH_API_HOST empty to disable outbound HTTP.
+ *
  * Onboard LED (usually GPIO2, active LOW): steady = Wi-Fi connected, blink = not connected.
  * A separate power LED on the board may not be controlled by this sketch.
  *
@@ -21,6 +25,8 @@
  */
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClient.h>
 
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 2
@@ -35,6 +41,23 @@
 
 #ifndef COMMAND_TOKEN
 #define COMMAND_TOKEN ""
+#endif
+
+// Nest API (see apps/api): host = PC or server IP in LAN, same API_KEY as in apps/api/.env
+#ifndef GH_API_HOST
+#define GH_API_HOST "192.168.1.34"
+#endif
+#ifndef GH_API_PORT
+#define GH_API_PORT 3000
+#endif
+#ifndef GH_API_KEY
+#define GH_API_KEY "TEST_API_KEY"
+#endif
+#ifndef GH_DEVICE_ID
+#define GH_DEVICE_ID "gh-node-1"
+#endif
+#ifndef GH_READINGS_INTERVAL_MS
+#define GH_READINGS_INTERVAL_MS 60000UL
 #endif
 
 // Same baud as arduino-test.ino espLink (9600 is reliable for Uno SoftwareSerial).
@@ -53,6 +76,9 @@ bool wifiLedBlinkPhase = false;
 
 String rxLine;
 const size_t kMaxLine = 96;
+
+unsigned long lastReadingPostMs = 0;
+wl_status_t lastWifiStatus = WL_DISCONNECTED;
 
 static void printWlStatus(wl_status_t s) {
   switch (s) {
@@ -236,6 +262,73 @@ static void updateWifiStatusLed() {
   ledUpdateDisconnectedBlink();
 }
 
+static bool backendConfigured() {
+  return GH_API_HOST[0] != '\0' && GH_API_KEY[0] != '\0';
+}
+
+static String backendBaseUrl() {
+  String u = F("http://");
+  u += GH_API_HOST;
+  u += F(":");
+  u += String(GH_API_PORT);
+  return u;
+}
+
+static void logHttpCode(const char *label, int httpCode) {
+  Serial.print(F("[api] "));
+  Serial.print(label);
+  Serial.print(F(" http="));
+  Serial.println(httpCode);
+}
+
+static void tryRegisterWithBackend() {
+  if (!backendConfigured()) {
+    return;
+  }
+  String body = F("{\"deviceId\":\"");
+  body += GH_DEVICE_ID;
+  body += F("\",\"firmwareVersion\":\"esp8266-web-bridge\"}");
+  WiFiClient client;
+  HTTPClient http;
+  String url = backendBaseUrl();
+  url += F("/devices/register");
+  if (!http.begin(client, url)) {
+    Serial.println(F("[api] register begin failed"));
+    return;
+  }
+  http.addHeader(F("Content-Type"), F("application/json"));
+  http.addHeader(F("X-API-Key"), GH_API_KEY);
+  http.setTimeout(8000);
+  const int code = http.POST(body);
+  http.end();
+  logHttpCode("register", code);
+}
+
+static void tryPostReadingToBackend() {
+  if (!backendConfigured() || lastSensorValue < 0) {
+    return;
+  }
+  String body = F("{\"deviceId\":\"");
+  body += GH_DEVICE_ID;
+  body += F("\",\"payload\":{\"moisture\":");
+  body += lastSensorValue;
+  body += F("}}");
+  WiFiClient client;
+  HTTPClient http;
+  String url = backendBaseUrl();
+  url += F("/readings");
+  if (!http.begin(client, url)) {
+    Serial.println(F("[api] readings begin failed"));
+    return;
+  }
+  http.addHeader(F("Content-Type"), F("application/json"));
+  http.addHeader(F("X-API-Key"), GH_API_KEY);
+  http.setTimeout(8000);
+  const int code = http.POST(body);
+  http.end();
+  logHttpCode("readings", code);
+}
+
 void pollUartFromUno() {
   while (Serial.available() > 0) {
     const char c = static_cast<char>(Serial.read());
@@ -311,6 +404,15 @@ void setup() {
   server.on(F("/command"), HTTP_OPTIONS, handleCommandOptions);
   server.begin();
   Serial.println(F("[wifi] HTTP server :80"));
+
+  lastWifiStatus = WiFi.status();
+  if (backendConfigured()) {
+    Serial.println(F("[api] backend enabled, registering..."));
+    tryRegisterWithBackend();
+    lastReadingPostMs = millis();
+  } else {
+    Serial.println(F("[api] backend disabled (set GH_API_HOST + GH_API_KEY)"));
+  }
 }
 
 void loop() {
@@ -319,8 +421,26 @@ void loop() {
   updateWifiStatusLed();
 
   const unsigned long now = millis();
+  const wl_status_t st = WiFi.status();
+
+  if (st == WL_CONNECTED && lastWifiStatus != WL_CONNECTED) {
+    if (backendConfigured()) {
+      Serial.println(F("[api] Wi-Fi reconnected, registering..."));
+      tryRegisterWithBackend();
+      lastReadingPostMs = millis();
+    }
+  }
+  lastWifiStatus = st;
+
   if (now - wifiConnectedAtMs < 120000UL && now - lastIpToUnoMs >= 4000UL) {
     lastIpToUnoMs = now;
     sendLocalIpToUno();
+  }
+
+  if (st == WL_CONNECTED && backendConfigured() && lastSensorValue >= 0) {
+    if (now - lastReadingPostMs >= GH_READINGS_INTERVAL_MS) {
+      lastReadingPostMs = now;
+      tryPostReadingToBackend();
+    }
   }
 }

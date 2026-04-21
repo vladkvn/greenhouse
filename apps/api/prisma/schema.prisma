@@ -1,0 +1,33 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Device {
+  id               String    @id @default(uuid())
+  deviceId         String    @unique
+  name             String?
+  firmwareVersion  String?
+  registeredAt     DateTime  @default(now())
+  lastSeenAt       DateTime?
+
+  readings Reading[]
+
+  @@map("devices")
+}
+
+model Reading {
+  id         BigInt   @id @default(autoincrement())
+  deviceId   String
+  device     Device   @relation(fields: [deviceId], references: [deviceId], onDelete: Cascade)
+  payload    Json
+  takenAt    DateTime?
+  receivedAt DateTime @default(now())
+
+  @@index([deviceId, receivedAt(sort: Desc)])
+  @@map("readings")
+}
