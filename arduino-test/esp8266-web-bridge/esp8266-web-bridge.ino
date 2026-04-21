@@ -14,10 +14,10 @@
 #include <ESP8266WebServer.h>
 
 #ifndef STASSID
-#define STASSID "YOUR_WIFI_SSID"
+#define STASSID "Autosnap"
 #endif
 #ifndef STAPSK
-#define STAPSK "YOUR_WIFI_PASSWORD"
+#define STAPSK "pryF6vy9"
 #endif
 
 static const int UART_BAUD = 57600;
