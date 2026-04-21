@@ -1,5 +1,6 @@
 /*
- * ESP8266 (Petoi WiFi module): HTTP API + UART bridge to Arduino Uno.
+ * ESP8266 (Petoi WiFi module): MQTT (Mosquitto) + UART bridge to Arduino Uno.
+ * Локальный HTTP-сервер отключён — команды и телеметрия идут через брокер.
  *
  * Wiring to Uno:
  *   ESP TX  -> Uno D2 (SoftwareSerial RX)
@@ -8,27 +9,24 @@
  *
  * UART protocol (newline-terminated lines):
  *   Uno -> ESP: telemetry "T,<0..1023>"
- *   Uno -> ESP: "N,REG" — выполнить POST /devices/register (инициирует только Uno)
- *   Uno -> ESP: "N,S,<0..1023>" — POST /readings с payload.moisture = значение (инициирует только Uno)
- *   ESP -> Uno: "I,<IPv4>" repeated for ~2 min every 4 s (Uno may miss first line; LCD line 2 until first command)
- *   ESP -> Uno: "C,<NAME>" — команда с HTTP /command (обрабатывает Uno)
- *   ESP -> Uno: "K,REG,<httpCode>" / "K,S,<httpCode>" — ответ по запросам N,* (опционально для отладки)
+ *   Uno -> ESP: "N,REG" — publish register JSON to MQTT greenhouse/<id>/register
+ *   Uno -> ESP: "N,S,<0..1023>" — publish readings JSON to greenhouse/<id>/readings
+ *   ESP -> Uno: "I,<IPv4>" repeated for ~2 min every 4 s
+ *   ESP -> Uno: "C,<NAME>" — команда из MQTT topic greenhouse/<id>/cmd (payload = имя команды)
+ *   ESP -> Uno: "K,REG,<code>" / "K,S,<code>" — результат публикации в MQTT (200=ok)
  *
- * WiFi: set STASSID / STAPSK below (or -DSTASSID / -DSTAPSK at build time).
- * Optional: COMMAND_TOKEN — if non-empty, require ?token=... on /command
+ * MQTT topics (prefix greenhouse/<GH_DEVICE_ID>/):
+ *   .../cmd     — subscribe, payload = PING, RELAY_ON, VENT_OPEN, ...
+ *   .../register — publish JSON для apps/api (MqttIngestService)
+ *   .../readings — publish JSON для apps/api
  *
- * GreenHouse Nest API: ESP только исполняет HTTP по строкам N,* с UART; расписание и решение «когда слать»
- * задаётся в arduino-test.ino. Задайте GH_API_HOST + GH_API_KEY на ESP (как endpoint для клиента).
+ * Задайте MQTT_BROKER_HOST = IP ПК с Docker (Mosquitto порт 1883), GH_DEVICE_ID как в API.
  *
- * Onboard LED (usually GPIO2, active LOW): steady = Wi-Fi connected, blink = not connected.
- * A separate power LED on the board may not be controlled by this sketch.
- *
- * Debug: connect USB to this module, Serial Monitor @ 9600 — lines prefixed [wifi].
+ * Library: PubSubClient (Arduino Library Manager).
  */
 #include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
-#include <ESP8266HTTPClient.h>
-#include <WiFiClient.h>
+#define MQTT_MAX_PACKET_SIZE 512
+#include <PubSubClient.h>
 
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 2
@@ -49,20 +47,21 @@
 #ifndef GH_API_HOST
 #define GH_API_HOST "192.168.1.34"
 #endif
-#ifndef GH_API_PORT
-#define GH_API_PORT 3000
+
+#ifndef MQTT_BROKER_HOST
+#define MQTT_BROKER_HOST "192.168.1.34"
 #endif
-#ifndef GH_API_KEY
-#define GH_API_KEY "TEST_API_KEY"
+#ifndef MQTT_BROKER_PORT
+#define MQTT_BROKER_PORT 1883
 #endif
 #ifndef GH_DEVICE_ID
 #define GH_DEVICE_ID "gh-node-1"
 #endif
 
-// Same baud as arduino-test.ino espLink (9600 is reliable for Uno SoftwareSerial).
 static const int UART_BAUD = 9600;
 
-ESP8266WebServer server(80);
+WiFiClient wifiClient;
+PubSubClient mqttClient(wifiClient);
 
 int lastSensorValue = -1;
 unsigned long lastSensorMillis = 0;
@@ -72,6 +71,8 @@ unsigned long lastIpToUnoMs = 0;
 
 unsigned long wifiLedBlinkMs = 0;
 bool wifiLedBlinkPhase = false;
+
+unsigned long lastMqttReconnectMs = 0;
 
 String rxLine;
 const size_t kMaxLine = 96;
@@ -125,21 +126,6 @@ static void setupWifiSerialLogging() {
   });
 }
 
-static void sendCorsJson(int status, const String &body) {
-  server.sendHeader(F("Access-Control-Allow-Origin"), F("*"));
-  server.sendHeader(F("Access-Control-Allow-Methods"), F("GET, POST, OPTIONS"));
-  server.sendHeader(F("Access-Control-Allow-Headers"), F("Content-Type"));
-  server.send(status, F("application/json"), body);
-}
-
-static bool tokenOk() {
-  const char *tok = COMMAND_TOKEN;
-  if (tok == nullptr || tok[0] == '\0') {
-    return true;
-  }
-  return server.hasArg(F("token")) && server.arg(F("token")) == String(tok);
-}
-
 static bool allowedCommand(const String &cmd) {
   return cmd == F("PING") || cmd == F("RELAY_ON") || cmd == F("RELAY_OFF") ||
          cmd == F("VENT_OPEN") || cmd == F("VENT_CLOSE");
@@ -158,170 +144,131 @@ static void sendLocalIpToUno() {
   Serial.print(F("\n"));
 }
 
-void handleSensor() {
-  if (lastSensorValue < 0) {
-    sendCorsJson(503, F("{\"error\":\"no_data_yet\"}"));
-    return;
+static void mqttCallback(char *topic, byte *payload, unsigned int length) {
+  (void)topic;
+  String cmd;
+  for (unsigned int i = 0; i < length; i++) {
+    cmd += static_cast<char>(payload[i]);
   }
-  String body;
-  body.reserve(64);
-  body += F("{\"value\":");
-  body += lastSensorValue;
-  body += F(",\"ageMs\":");
-  body += (millis() - lastSensorMillis);
-  body += F("}");
-  sendCorsJson(200, body);
-}
-
-void handleCommand() {
-  if (!tokenOk()) {
-    sendCorsJson(401, F("{\"error\":\"unauthorized\"}"));
-    return;
-  }
-
-  String cmd = server.arg(F("cmd"));
+  cmd.trim();
   if (cmd.length() == 0) {
-    sendCorsJson(400, F("{\"error\":\"missing_cmd\"}"));
     return;
   }
   if (!allowedCommand(cmd)) {
-    sendCorsJson(400, F("{\"error\":\"unknown_cmd\"}"));
+    Serial.print(F("[mqtt] ignored cmd: "));
+    Serial.println(cmd);
     return;
   }
-
   forwardCommandToUno(cmd);
-  String body = F("{\"ok\":true,\"cmd\":\"");
-  body += cmd;
-  body += F("\"}");
-  sendCorsJson(200, body);
 }
 
-void handleCommandOptions() {
-  server.sendHeader(F("Access-Control-Allow-Origin"), F("*"));
-  server.sendHeader(F("Access-Control-Allow-Methods"), F("GET, POST, OPTIONS"));
-  server.sendHeader(F("Access-Control-Allow-Headers"), F("Content-Type"));
-  server.send(204);
+static bool mqttBrokerConfigured() {
+  return MQTT_BROKER_HOST[0] != '\0';
 }
 
-void handleRoot() {
-  server.sendHeader(F("Location"), F("/sensor"));
-  server.send(302, F("text/plain"), F(""));
+static String mqttClientId() {
+  return String(F("gh-")) + String(GH_DEVICE_ID) + F("-") +
+         String(ESP.getChipId(), HEX);
 }
 
-static void ledInit() {
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, HIGH);
-}
-
-static void ledSetWifiConnected(bool connected) {
-  if (connected) {
-    digitalWrite(LED_BUILTIN, LOW);
-  }
-}
-
-static void ledUpdateDisconnectedBlink() {
-  const unsigned long t = millis();
-  if (t - wifiLedBlinkMs < 400) {
-    return;
-  }
-  wifiLedBlinkMs = t;
-  wifiLedBlinkPhase = !wifiLedBlinkPhase;
-  digitalWrite(LED_BUILTIN, wifiLedBlinkPhase ? LOW : HIGH);
-}
-
-static void updateWifiStatusLed() {
-  if (WiFi.status() == WL_CONNECTED) {
-    ledSetWifiConnected(true);
-    return;
-  }
-  ledUpdateDisconnectedBlink();
-}
-
-static bool backendConfigured() {
-  return GH_API_HOST[0] != '\0' && GH_API_KEY[0] != '\0';
-}
-
-static String backendBaseUrl() {
-  String u = F("http://");
-  u += GH_API_HOST;
-  u += F(":");
-  u += String(GH_API_PORT);
-  return u;
-}
-
-static void logHttpCode(const char *label, int httpCode) {
-  Serial.print(F("[api] "));
-  Serial.print(label);
-  Serial.print(F(" http="));
-  Serial.println(httpCode);
-}
-
-static void sendNestAckToUno(const __FlashStringHelper *op, int httpCode) {
+static void sendBackendAckToUno(const __FlashStringHelper *op, int code) {
   Serial.print(F("K,"));
   Serial.print(op);
   Serial.print(F(","));
-  Serial.println(httpCode);
+  Serial.println(code);
 }
 
-/** POST /devices/register — вызывается только по UART строке N,REG с Uno. */
-static int httpRegisterFromUno() {
-  if (!backendConfigured()) {
-    Serial.println(F("[api] register skipped (no GH_API_HOST/GH_API_KEY)"));
-    sendNestAckToUno(F("REG"), -1);
+static bool connectMqttBroker() {
+  if (!mqttBrokerConfigured()) {
+    return false;
+  }
+  mqttClient.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
+  mqttClient.setCallback(mqttCallback);
+  Serial.print(F("[mqtt] connecting to "));
+  Serial.print(MQTT_BROKER_HOST);
+  Serial.print(F(":"));
+  Serial.println(MQTT_BROKER_PORT);
+
+  if (!mqttClient.connect(mqttClientId().c_str())) {
+    Serial.print(F("[mqtt] failed state="));
+    Serial.println(mqttClient.state());
+    return false;
+  }
+
+  const String cmdTopic =
+      String(F("greenhouse/")) + String(GH_DEVICE_ID) + F("/cmd");
+  if (mqttClient.subscribe(cmdTopic.c_str())) {
+    Serial.print(F("[mqtt] subscribed "));
+    Serial.println(cmdTopic);
+  } else {
+    Serial.println(F("[mqtt] subscribe failed"));
+    return false;
+  }
+  return true;
+}
+
+static void mqttMaintain() {
+  if (!mqttBrokerConfigured() || WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+  if (mqttClient.connected()) {
+    mqttClient.loop();
+    return;
+  }
+  const unsigned long now = millis();
+  if (now - lastMqttReconnectMs < 3000UL) {
+    return;
+  }
+  lastMqttReconnectMs = now;
+  connectMqttBroker();
+}
+
+static bool mqttPublishJson(const char *suffix, const String &jsonBody) {
+  if (!mqttBrokerConfigured()) {
+    return false;
+  }
+  if (!mqttClient.connected()) {
+    if (!connectMqttBroker()) {
+      return false;
+    }
+  }
+  const String topic =
+      String(F("greenhouse/")) + String(GH_DEVICE_ID) + String(suffix);
+  const bool ok = mqttClient.publish(topic.c_str(), jsonBody.c_str(), false);
+  mqttClient.loop();
+  return ok;
+}
+
+static int mqttPublishRegister() {
+  if (!mqttBrokerConfigured()) {
+    Serial.println(F("[mqtt] register skipped (set MQTT_BROKER_HOST)"));
+    sendBackendAckToUno(F("REG"), -1);
     return -1;
   }
-  String body = F("{\"deviceId\":\"");
-  body += GH_DEVICE_ID;
-  body += F("\",\"firmwareVersion\":\"esp8266-web-bridge\",\"lastKnownIp\":\"");
-  body += WiFi.localIP().toString();
-  body += F("\"}");
-  WiFiClient client;
-  HTTPClient http;
-  String url = backendBaseUrl();
-  url += F("/devices/register");
-  if (!http.begin(client, url)) {
-    Serial.println(F("[api] register begin failed"));
-    sendNestAckToUno(F("REG"), -2);
-    return -2;
-  }
-  http.addHeader(F("Content-Type"), F("application/json"));
-  http.addHeader(F("X-API-Key"), GH_API_KEY);
-  http.setTimeout(8000);
-  const int code = http.POST(body);
-  http.end();
-  logHttpCode("register", code);
-  sendNestAckToUno(F("REG"), code);
+  String body = String(F("{\"deviceId\":\"")) + String(GH_DEVICE_ID) +
+                  F("\",\"firmwareVersion\":\"esp8266-mqtt\",\"lastKnownIp\":\"") +
+                  WiFi.localIP().toString() + F("\"}");
+  const bool ok = mqttPublishJson("/register", body);
+  Serial.print(F("[mqtt] publish register ok="));
+  Serial.println(ok ? F("1") : F("0"));
+  const int code = ok ? 200 : -3;
+  sendBackendAckToUno(F("REG"), code);
   return code;
 }
 
-/** POST /readings — влажность передаёт Uno в N,S,<value>. */
-static int httpReadingFromUno(int moisture) {
-  if (!backendConfigured()) {
-    Serial.println(F("[api] readings skipped (no GH_API_HOST/GH_API_KEY)"));
-    sendNestAckToUno(F("S"), -1);
+static int mqttPublishReading(int moisture) {
+  if (!mqttBrokerConfigured()) {
+    Serial.println(F("[mqtt] readings skipped (set MQTT_BROKER_HOST)"));
+    sendBackendAckToUno(F("S"), -1);
     return -1;
   }
-  String body = F("{\"deviceId\":\"");
-  body += GH_DEVICE_ID;
-  body += F("\",\"payload\":{\"moisture\":");
-  body += moisture;
-  body += F("}}");
-  WiFiClient client;
-  HTTPClient http;
-  String url = backendBaseUrl();
-  url += F("/readings");
-  if (!http.begin(client, url)) {
-    Serial.println(F("[api] readings begin failed"));
-    sendNestAckToUno(F("S"), -2);
-    return -2;
-  }
-  http.addHeader(F("Content-Type"), F("application/json"));
-  http.addHeader(F("X-API-Key"), GH_API_KEY);
-  http.setTimeout(8000);
-  const int code = http.POST(body);
-  http.end();
-  logHttpCode("readings", code);
-  sendNestAckToUno(F("S"), code);
+  String body = String(F("{\"deviceId\":\"")) + String(GH_DEVICE_ID) +
+                  F("\",\"payload\":{\"moisture\":") + String(moisture) + F("}}");
+  const bool ok = mqttPublishJson("/readings", body);
+  Serial.print(F("[mqtt] publish readings ok="));
+  Serial.println(ok ? F("1") : F("0"));
+  const int code = ok ? 200 : -3;
+  sendBackendAckToUno(F("S"), code);
   return code;
 }
 
@@ -358,7 +305,7 @@ static void ingestNetworkRequestFromUno(const String &lineRaw) {
   String line = lineRaw;
   line.trim();
   if (line == F("N,REG")) {
-    httpRegisterFromUno();
+    mqttPublishRegister();
     return;
   }
   if (!line.startsWith(F("N,S,"))) {
@@ -372,7 +319,7 @@ static void ingestNetworkRequestFromUno(const String &lineRaw) {
   if (v < 0 || v > 1023) {
     return;
   }
-  httpReadingFromUno(v);
+  mqttPublishReading(v);
 }
 
 static void ingestSerialLine(const String &line) {
@@ -407,17 +354,45 @@ void pollUartFromUno() {
   }
 }
 
+static void ledInit() {
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH);
+}
+
+static void ledSetWifiConnected(bool connected) {
+  if (connected) {
+    digitalWrite(LED_BUILTIN, LOW);
+  }
+}
+
+static void ledUpdateDisconnectedBlink() {
+  const unsigned long t = millis();
+  if (t - wifiLedBlinkMs < 400) {
+    return;
+  }
+  wifiLedBlinkMs = t;
+  wifiLedBlinkPhase = !wifiLedBlinkPhase;
+  digitalWrite(LED_BUILTIN, wifiLedBlinkPhase ? LOW : HIGH);
+}
+
+static void updateWifiStatusLed() {
+  if (WiFi.status() == WL_CONNECTED) {
+    ledSetWifiConnected(true);
+    return;
+  }
+  ledUpdateDisconnectedBlink();
+}
+
 void setup() {
   Serial.begin(UART_BAUD);
   Serial.setTimeout(10);
 
   Serial.println();
-  Serial.println(F("[wifi] esp8266-web-bridge boot"));
+  Serial.println(F("[wifi] esp8266-mqtt-bridge boot"));
   Serial.print(F("[wifi] target SSID="));
   Serial.println(STASSID);
 
   ledInit();
-
   setupWifiSerialLogging();
 
   WiFi.mode(WIFI_STA);
@@ -456,23 +431,16 @@ void setup() {
   sendLocalIpToUno();
   lastIpToUnoMs = millis();
 
-  server.on(F("/"), handleRoot);
-  server.on(F("/sensor"), handleSensor);
-  server.on(F("/command"), HTTP_GET, handleCommand);
-  server.on(F("/command"), HTTP_POST, handleCommand);
-  server.on(F("/command"), HTTP_OPTIONS, handleCommandOptions);
-  server.begin();
-  Serial.println(F("[wifi] HTTP server :80"));
-
-  if (backendConfigured()) {
-    Serial.println(F("[api] Nest HTTP: on UART send N,REG / N,S,<0..1023> (Uno initiates)"));
+  if (mqttBrokerConfigured()) {
+    connectMqttBroker();
+    Serial.println(F("[mqtt] broker configured; UART N,REG / N,S publish to greenhouse/..."));
   } else {
-    Serial.println(F("[api] Nest HTTP disabled (set GH_API_HOST + GH_API_KEY on ESP)"));
+    Serial.println(F("[mqtt] disabled — set MQTT_BROKER_HOST to your broker IP (e.g. PC running Docker)"));
   }
 }
 
 void loop() {
-  server.handleClient();
+  mqttMaintain();
   pollUartFromUno();
   updateWifiStatusLed();
 

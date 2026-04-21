@@ -3,15 +3,10 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  ServiceUnavailableException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import * as mqtt from "mqtt";
 import { SendCommandDto } from "./dto/send-command.dto";
-
-type DeviceLookupResponse = {
-  deviceId: string;
-  lastKnownIp: string | null;
-};
 
 @Injectable()
 export class CommandsService {
@@ -25,10 +20,6 @@ export class CommandsService {
       "",
     );
     const apiKey = this.config.getOrThrow<string>("GREENHOUSE_API_KEY");
-    const devicePort = Number(
-      this.config.get<string>("DEVICE_HTTP_PORT") ?? "80",
-    );
-    const commandToken = this.config.get<string>("COMMAND_TOKEN") ?? "";
 
     const lookupUrl = `${apiBase}/devices/by-id/${encodeURIComponent(dto.deviceId)}`;
     const lookupRes = await fetch(lookupUrl, {
@@ -49,57 +40,52 @@ export class CommandsService {
       );
     }
 
-    const device = (await lookupRes.json()) as DeviceLookupResponse;
+    const mqttUrl = this.config.getOrThrow<string>("MQTT_URL");
+    const topic = `greenhouse/${dto.deviceId}/cmd`;
 
-    if (
-      device.lastKnownIp === null ||
-      device.lastKnownIp === undefined ||
-      device.lastKnownIp.length === 0
-    ) {
-      throw new ServiceUnavailableException(
-        "Device has no lastKnownIp; ensure the module registered with IP (POST /devices/register with lastKnownIp)",
+    await new Promise<void>((resolve, reject) => {
+      const client = mqtt.connect(mqttUrl);
+      const timeoutMs = Number(
+        this.config.get<string>("MQTT_PUBLISH_TIMEOUT_MS") ?? "8000",
       );
-    }
+      const timer = setTimeout(() => {
+        client.end(true);
+        reject(new Error("MQTT publish timeout"));
+      }, timeoutMs);
 
-    let deviceUrl = `http://${device.lastKnownIp}:${String(devicePort)}/command?cmd=${encodeURIComponent(dto.cmd)}`;
-    if (commandToken.length > 0) {
-      deviceUrl += `&token=${encodeURIComponent(commandToken)}`;
-    }
-
-    const timeoutMs = Number(
-      this.config.get<string>("DEVICE_HTTP_TIMEOUT_MS") ?? "10000",
-    );
-    const ac = new AbortController();
-    const t = setTimeout(() => ac.abort(), timeoutMs);
-
-    let cmdRes: Response;
-    try {
-      cmdRes = await fetch(deviceUrl, {
-        method: "GET",
-        signal: ac.signal,
+      client.on("error", (err: Error) => {
+        clearTimeout(timer);
+        client.end(true);
+        reject(err);
       });
-    } catch (err) {
-      clearTimeout(t);
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`Device HTTP failed: ${message}`);
-      throw new BadGatewayException(
-        `Could not reach device at ${device.lastKnownIp}:${String(devicePort)} (${message})`,
-      );
-    } finally {
-      clearTimeout(t);
-    }
 
-    const responseText = await cmdRes.text();
+      client.on("connect", () => {
+        client.publish(topic, dto.cmd, { qos: 0 }, (err) => {
+          clearTimeout(timer);
+          client.end();
+          if (err !== undefined && err !== null) {
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      });
+    }).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`MQTT publish failed: ${message}`);
+      throw new BadGatewayException(`MQTT: ${message}`);
+    });
+
     this.logger.log(
-      `Command sent: deviceId=${dto.deviceId} cmd=${dto.cmd} deviceHttp=${String(cmdRes.status)}`,
+      `Command published via MQTT: deviceId=${dto.deviceId} cmd=${dto.cmd} topic=${topic}`,
     );
 
     return {
-      ok: cmdRes.ok,
+      ok: true,
       deviceId: dto.deviceId,
       cmd: dto.cmd,
-      deviceHttpStatus: cmdRes.status,
-      deviceResponse: responseText.length > 2048 ? responseText.slice(0, 2048) + "…" : responseText,
+      transport: "mqtt" as const,
+      topic,
     };
   }
 }

@@ -37,9 +37,12 @@ services:
       DATABASE_URL: postgresql://greenhouse:greenhouse@postgres:5432/greenhouse
       API_KEY: ${API_KEY:-dev-api-key-change-me}
       PORT: "3000"
+      MQTT_URL: mqtt://mosquitto:1883
     depends_on:
       postgres:
         condition: service_healthy
+      mosquitto:
+        condition: service_started
 
   commander:
     build:
@@ -52,11 +55,12 @@ services:
       GREENHOUSE_API_URL: http://api:3000
       GREENHOUSE_API_KEY: ${API_KEY:-dev-api-key-change-me}
       COMMANDER_API_KEY: ${COMMANDER_API_KEY:-dev-commander-key-change-me}
-      COMMAND_TOKEN: ${COMMAND_TOKEN:-}
-      DEVICE_HTTP_PORT: ${DEVICE_HTTP_PORT:-80}
-      DEVICE_HTTP_TIMEOUT_MS: ${DEVICE_HTTP_TIMEOUT_MS:-10000}
+      MQTT_URL: mqtt://mosquitto:1883
+      MQTT_PUBLISH_TIMEOUT_MS: ${MQTT_PUBLISH_TIMEOUT_MS:-8000}
     depends_on:
       - api
+      mosquitto:
+        condition: service_started
 
 volumes:
   postgres_data:
