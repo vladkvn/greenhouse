@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { toPrismaInputJsonObject } from "../common/json-prisma";
 import { CreateReadingDto } from "./dto/create-reading.dto";
 
 @Injectable()
 export class ReadingsService {
+  private readonly logger = new Logger(ReadingsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async create(dto: CreateReadingDto) {
@@ -34,6 +36,12 @@ export class ReadingsService {
 
       return created;
     });
+
+    const payloadSummary = JSON.stringify(dto.payload);
+    this.logger.log(
+      `Reading received: deviceId=${dto.deviceId} readingId=${reading.id.toString()} payload=${payloadSummary}` +
+        (dto.takenAt !== undefined ? ` takenAt=${dto.takenAt}` : ""),
+    );
 
     return {
       id: reading.id.toString(),

@@ -5,6 +5,10 @@
 // UART to ESP8266 (Petoi): Uno D2 = RX <- ESP TX, Uno D3 = TX -> ESP RX (use 5V to 3.3V level shift on D3)
 // Speed 9600: stable for SoftwareSerial on Uno; must match esp8266-web-bridge UART_BAUD.
 // USB Serial Monitor on THIS board: 9600 baud (not the ESP8266's rate if different).
+//
+// Bump when changing this sketch (printed on boot at 9600 baud).
+static const char FIRMWARE_VERSION[] = "arduino-test/0.1.0";
+
 SoftwareSerial espLink(2, 3);
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
@@ -187,6 +191,9 @@ static void readSensorAndPublish() {
 
 void setup() {
   Serial.begin(9600);
+  Serial.print(F("fw:"));
+  Serial.println(FIRMWARE_VERSION);
+
   espLink.begin(ESP_BAUD);
 
   lcd.init();

@@ -1,9 +1,11 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { RegisterDeviceDto } from "./dto/register-device.dto";
 
 @Injectable()
 export class DevicesService {
+  private readonly logger = new Logger(DevicesService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async register(dto: RegisterDeviceDto) {
@@ -26,10 +28,19 @@ export class DevicesService {
       },
     });
 
+    const isNew = existing === null;
+    this.logger.log(
+      `Device register: deviceId=${device.deviceId} isNew=${String(isNew)}` +
+        (dto.name !== undefined ? ` name=${dto.name}` : "") +
+        (dto.firmwareVersion !== undefined
+          ? ` firmwareVersion=${dto.firmwareVersion}`
+          : ""),
+    );
+
     return {
       deviceId: device.deviceId,
       registeredAt: device.registeredAt.toISOString(),
-      isNew: existing === null,
+      isNew,
     };
   }
 }

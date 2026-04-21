@@ -35,10 +35,10 @@
 #endif
 
 #ifndef STASSID
-#define STASSID "YOUR_WIFI_SSID"
+#define STASSID "Autasnap"
 #endif
 #ifndef STAPSK
-#define STAPSK "YOUR_WIFI_PASSWORD"
+#define STAPSK "pryF6vy9"
 #endif
 
 #ifndef COMMAND_TOKEN
