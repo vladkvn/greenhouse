@@ -20,6 +20,25 @@ const size_t kMaxRxLine = 64;
 
 unsigned long lastSensorMs = 0;
 
+int lastSensorValue = 0;
+
+String pendingCmdDisplay;
+unsigned long cmdDisplayUntilMs = 0;
+static const unsigned long CMD_LCD_DURATION_MS = 2500;
+
+static void padLineTo16(const String &text) {
+  String line = text;
+  if (line.length() > 16) {
+    line = line.substring(0, 16);
+  }
+  lcd.print(line);
+  for (unsigned int i = line.length(); i < 16; i++) {
+    lcd.print(' ');
+  }
+}
+
+static void drawUi(int value);
+
 static bool isAllowedCommand(const String &cmd) {
   return cmd == F("PING") || cmd == F("RELAY_ON") || cmd == F("RELAY_OFF");
 }
@@ -28,15 +47,37 @@ static void handleCommand(const String &cmd) {
   if (!isAllowedCommand(cmd)) {
     return;
   }
+  pendingCmdDisplay = cmd;
+  cmdDisplayUntilMs = millis() + CMD_LCD_DURATION_MS;
+
   if (cmd == F("PING")) {
     Serial.println(F("cmd:PING"));
-    return;
-  }
-  if (cmd == F("RELAY_ON")) {
+  } else if (cmd == F("RELAY_ON")) {
     relayOn = true;
   } else if (cmd == F("RELAY_OFF")) {
     relayOn = false;
   }
+
+  drawUi(lastSensorValue);
+}
+
+static void drawLine1Status(int value) {
+  lcd.setCursor(0, 1);
+  const unsigned long now = millis();
+  if (now < cmdDisplayUntilMs && pendingCmdDisplay.length() > 0) {
+    String line = F("Cmd ");
+    line += pendingCmdDisplay;
+    padLineTo16(line);
+    return;
+  }
+  if (value > 500) {
+    lcd.print(F("WET"));
+  } else {
+    lcd.print(F("DRY"));
+  }
+  lcd.print(F(" R:"));
+  lcd.print(relayOn ? F("ON ") : F("OFF"));
+  lcd.print(F("    "));
 }
 
 static void processIncomingFromEsp() {
@@ -65,19 +106,12 @@ static void drawUi(int value) {
   lcd.print(F("S:"));
   lcd.print(value);
   lcd.print(F("        "));
-  lcd.setCursor(0, 1);
-  if (value > 500) {
-    lcd.print(F("WET"));
-  } else {
-    lcd.print(F("DRY"));
-  }
-  lcd.print(F(" R:"));
-  lcd.print(relayOn ? F("ON ") : F("OFF"));
-  lcd.print(F("    "));
+  drawLine1Status(value);
 }
 
 static void readSensorAndPublish() {
   const int value = analogRead(sensorPin);
+  lastSensorValue = value;
   drawUi(value);
 
   Serial.print(F("T,"));
@@ -109,5 +143,9 @@ void loop() {
   if (now - lastSensorMs >= SENSOR_INTERVAL_MS) {
     lastSensorMs = now;
     readSensorAndPublish();
+  } else if (cmdDisplayUntilMs != 0UL && now >= cmdDisplayUntilMs) {
+    cmdDisplayUntilMs = 0UL;
+    pendingCmdDisplay = "";
+    drawUi(lastSensorValue);
   }
 }
