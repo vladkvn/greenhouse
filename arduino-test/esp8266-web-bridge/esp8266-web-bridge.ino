@@ -8,7 +8,7 @@
  *
  * UART protocol (newline-terminated lines):
  *   Uno -> ESP: telemetry "T,<0..1023>"
- *   ESP -> Uno: after Wi-Fi connect, once: "I,<IPv4>" (shown on Uno LCD line 2 until first command)
+ *   ESP -> Uno: "I,<IPv4>" repeated for ~2 min every 4 s (Uno may miss first line; LCD line 2 until first command)
  *   ESP -> Uno: command "C,<NAME>" (same whitelist as in arduino-test.ino)
  *
  * WiFi: set STASSID / STAPSK below (or -DSTASSID / -DSTAPSK at build time).
@@ -28,12 +28,16 @@
 #define COMMAND_TOKEN ""
 #endif
 
-static const int UART_BAUD = 57600;
+// Same baud as arduino-test.ino espLink (9600 is reliable for Uno SoftwareSerial).
+static const int UART_BAUD = 9600;
 
 ESP8266WebServer server(80);
 
 int lastSensorValue = -1;
 unsigned long lastSensorMillis = 0;
+
+unsigned long wifiConnectedAtMs = 0;
+unsigned long lastIpToUnoMs = 0;
 
 String rxLine;
 const size_t kMaxLine = 96;
@@ -177,8 +181,10 @@ void setup() {
     delay(250);
   }
 
-  delay(100);
+  wifiConnectedAtMs = millis();
+  delay(200);
   sendLocalIpToUno();
+  lastIpToUnoMs = millis();
 
   server.on(F("/"), handleRoot);
   server.on(F("/sensor"), handleSensor);
@@ -191,4 +197,10 @@ void setup() {
 void loop() {
   server.handleClient();
   pollUartFromUno();
+
+  const unsigned long now = millis();
+  if (now - wifiConnectedAtMs < 120000UL && now - lastIpToUnoMs >= 4000UL) {
+    lastIpToUnoMs = now;
+    sendLocalIpToUno();
+  }
 }

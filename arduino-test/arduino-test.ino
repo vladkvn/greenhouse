@@ -3,13 +3,15 @@
 #include <SoftwareSerial.h>
 
 // UART to ESP8266 (Petoi): Uno D2 = RX <- ESP TX, Uno D3 = TX -> ESP RX (use 5V to 3.3V level shift on D3)
+// Speed 9600: stable for SoftwareSerial on Uno; must match esp8266-web-bridge UART_BAUD.
+// USB Serial Monitor on THIS board: 9600 baud (not the ESP8266's rate if different).
 SoftwareSerial espLink(2, 3);
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 const int sensorPin = A0;
 
-static const long ESP_BAUD = 57600;
+static const long ESP_BAUD = 9600;
 static const unsigned long SENSOR_INTERVAL_MS = 500;
 
 // Virtual relay for demo (replace with digitalWrite to a pin when hardware is wired)
@@ -70,10 +72,14 @@ static void handleIpAnnounce(const String &ipText) {
   if (firstCommandHandled) {
     return;
   }
-  if (!looksLikeIpv4Text(ipText)) {
+  String t = ipText;
+  t.trim();
+  if (!looksLikeIpv4Text(t)) {
     return;
   }
-  espAnnounceIp = ipText;
+  espAnnounceIp = t;
+  Serial.print(F("ip:"));
+  Serial.println(t);
   drawUi(lastSensorValue);
 }
 
