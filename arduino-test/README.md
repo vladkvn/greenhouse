@@ -47,6 +47,10 @@
 1. **ESP8266** — в Arduino IDE: менеджер плат ESP8266, плата **Generic ESP8266 Module** (как в [документации Petoi](https://docs.petoi.com/communication-modules/wifi-esp8266)). Откройте каталог `esp8266-web-bridge/`, залейте `esp8266-web-bridge.ino` через USB‑адаптер Petoi.
 2. **Uno** — откройте `arduino-test.ino`, выберите плату Arduino Uno, загрузите.
 
+### Проверка только Wi‑Fi (Uno + ESP)
+
+Скетч **`arduino-wifi-test/arduino-wifi-test.ino`** (на Uno, ESP с `esp8266-web-bridge`): ждёт строку `I,<IP>` по UART и пишет в Serial `[OK]` или таймаут. Без LCD и датчика.
+
 После подключения к Wi‑Fi ESP шлёт на Uno строки `I,<IP>` (см. таблицу выше). Адрес можно увидеть на **второй строке LCD** (см. ниже). На Uno в USB Serial при успешном разборе IP печатается строка `ip:<адрес>` (**9600** бод).
 
 ### «Квадратики» в Serial Monitor и разные скорости
