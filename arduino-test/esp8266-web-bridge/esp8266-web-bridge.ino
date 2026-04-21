@@ -47,13 +47,13 @@
 
 // Nest API (see apps/api): host = PC or server IP in LAN, same API_KEY as in apps/api/.env
 #ifndef GH_API_HOST
-#define GH_API_HOST ""
+#define GH_API_HOST "192.168.1.34"
 #endif
 #ifndef GH_API_PORT
 #define GH_API_PORT 3000
 #endif
 #ifndef GH_API_KEY
-#define GH_API_KEY ""
+#define GH_API_KEY "TEST_API_KEY"
 #endif
 #ifndef GH_DEVICE_ID
 #define GH_DEVICE_ID "gh-node-1"
