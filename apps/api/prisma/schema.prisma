@@ -12,6 +12,7 @@ model Device {
   deviceId         String    @unique
   name             String?
   firmwareVersion  String?
+  lastKnownIp      String?
   registeredAt     DateTime  @default(now())
   lastSeenAt       DateTime?
 

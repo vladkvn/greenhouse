@@ -271,7 +271,9 @@ static int httpRegisterFromUno() {
   }
   String body = F("{\"deviceId\":\"");
   body += GH_DEVICE_ID;
-  body += F("\",\"firmwareVersion\":\"esp8266-web-bridge\"}");
+  body += F("\",\"firmwareVersion\":\"esp8266-web-bridge\",\"lastKnownIp\":\"");
+  body += WiFi.localIP().toString();
+  body += F("\"}");
   WiFiClient client;
   HTTPClient http;
   String url = backendBaseUrl();

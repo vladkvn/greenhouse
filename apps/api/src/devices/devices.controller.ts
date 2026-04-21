@@ -1,4 +1,4 @@
-import { Body, Controller, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post } from "@nestjs/common";
 import { DevicesService } from "./devices.service";
 import { RegisterDeviceDto } from "./dto/register-device.dto";
 
@@ -9,5 +9,10 @@ export class DevicesController {
   @Post("register")
   register(@Body() body: RegisterDeviceDto) {
     return this.devices.register(body);
+  }
+
+  @Get("by-id/:deviceId")
+  getOne(@Param("deviceId") deviceId: string) {
+    return this.devices.getByDeviceId(deviceId);
   }
 }

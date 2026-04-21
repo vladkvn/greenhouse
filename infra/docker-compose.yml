@@ -1,3 +1,5 @@
+# Minimal Postgres + Mosquitto. For the full stack (API + Commander + DB), use ../docker-compose.yml at the repo root.
+
 services:
   postgres:
     image: postgres:16-alpine

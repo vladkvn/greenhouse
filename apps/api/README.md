@@ -5,9 +5,23 @@ HTTP API for registering Arduino-class devices and ingesting sensor readings. De
 ## Prerequisites
 
 - Node.js 20+
-- Docker (optional, for local PostgreSQL — see [../infra/docker-compose.yml](../infra/docker-compose.yml))
+- Docker (recommended: full stack — [../../docker-compose.yml](../../docker-compose.yml) at repo root)
 
-## Setup
+## Docker (API + Postgres + Mosquitto + Commander)
+
+From the **repository root**:
+
+```bash
+cp .env.example .env
+# set API_KEY and COMMANDER_API_KEY in .env
+docker compose up --build -d
+```
+
+- API: `http://localhost:3000`
+- Commander (send commands to devices by `deviceId`): `http://localhost:3001`
+- Postgres on the host: port **5433** (maps to 5432 in the container) — use this in `DATABASE_URL` when connecting tools from your machine.
+
+## Setup (local Node, without Docker for the API)
 
 1. Copy environment file:
 
@@ -17,11 +31,7 @@ HTTP API for registering Arduino-class devices and ingesting sensor readings. De
 
 2. Edit `.env`: set `API_KEY` to a strong secret and ensure `DATABASE_URL` matches your Postgres instance.
 
-3. Start PostgreSQL (example using repo compose from `infra/`):
-
-   ```bash
-   cd ../infra && docker compose up -d postgres
-   ```
+3. Start PostgreSQL (e.g. root `docker compose up -d postgres` only, or use the full stack above).
 
 4. Install dependencies and apply migrations:
 
@@ -55,11 +65,12 @@ Registers or updates a device (upsert by `deviceId`). Call this when the device 
 {
   "deviceId": "gh-node-1",
   "name": "greenhouse-main",
-  "firmwareVersion": "0.1.0"
+  "firmwareVersion": "0.1.0",
+  "lastKnownIp": "192.168.1.50"
 }
 ```
 
-`deviceId` must match `^[a-zA-Z0-9_-]+$` (your hardcoded ID in firmware). `name` and `firmwareVersion` are optional.
+`deviceId` must match `^[a-zA-Z0-9_-]+$` (your hardcoded ID in firmware). `name`, `firmwareVersion`, and **`lastKnownIp`** (IPv4 of the ESP8266 module on the LAN) are optional but **recommended** so the Commander service can reach `http://<ip>/command`.
 
 **Response**
 
@@ -68,6 +79,23 @@ Registers or updates a device (upsert by `deviceId`). Call this when the device 
   "deviceId": "gh-node-1",
   "registeredAt": "2025-04-21T12:00:00.000Z",
   "isNew": true
+}
+```
+
+### `GET /devices/by-id/:deviceId`
+
+Returns the stored device record (including `lastKnownIp`) for use by the Commander app. Requires `X-API-Key`.
+
+**Response** (example)
+
+```json
+{
+  "deviceId": "gh-node-1",
+  "lastKnownIp": "192.168.1.50",
+  "name": null,
+  "firmwareVersion": "esp8266-web-bridge",
+  "registeredAt": "2025-04-21T12:00:00.000Z",
+  "lastSeenAt": "2025-04-21T12:05:00.000Z"
 }
 ```
 
@@ -125,14 +153,9 @@ curl -sS -X POST "$BASE/readings" \
   -d '{"deviceId":"gh-node-1","payload":{"moisture":512}}'
 ```
 
-## Firmware follow-up (not implemented in this package)
+## Firmware (`arduino-test/`)
 
-To use this from the current Arduino + Petoi ESP8266 bridge:
-
-1. On boot (after Wi-Fi is up), `POST /devices/register` with the hardcoded `deviceId`.
-2. Every 60 seconds, `POST /readings` with `deviceId` and sensor values in `payload`.
-
-The ESP8266 sketch would need HTTP client calls added (or a small gateway); the sketches under `arduino-test/` are unchanged by this work.
+The Petoi ESP8266 bridge sends `POST /devices/register` (with `lastKnownIp` from `WiFi.localIP()`) when the Uno requests `N,REG`, and `POST /readings` on Uno’s schedule. See [../../arduino-test/README.md](../../arduino-test/README.md). The **Commander** app (`apps/commander`) sends commands to the module using the stored `lastKnownIp`.
 
 ## Scripts
 

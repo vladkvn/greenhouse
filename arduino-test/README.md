@@ -147,6 +147,8 @@ curl -s -X POST -d "cmd=PING" "http://192.168.1.50/command"
 
 В Serial ESP (9600) при запросах с Uno: **`[api]`** `register http=...` / `readings http=...`. На Uno в USB Serial строки **`nest:K,...`** — ответы по HTTP.
 
+При `POST /devices/register` ESP8266 добавляет в JSON поле **`lastKnownIp`** (текущий LAN‑адрес модуля), чтобы сервис **Commander** (`apps/commander`) мог вызывать устройство по `deviceId`.
+
 **Не коммитьте** реальный `GH_API_KEY` в открытый репозиторий; удобнее `-DGH_API_HOST=...` и т.д. при сборке.
 
 ## Поведение на LCD (Uno)

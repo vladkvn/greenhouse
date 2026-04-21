@@ -1,3 +1,7 @@
 # OS / IDE
 .DS_Store
 .idea/
+
+# Env
+.env
+.env.local

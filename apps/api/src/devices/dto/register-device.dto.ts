@@ -1,4 +1,11 @@
-import { IsOptional, IsString, Matches, MaxLength, MinLength } from "class-validator";
+import {
+  IsIP,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+} from "class-validator";
 
 export class RegisterDeviceDto {
   @IsString()
@@ -18,4 +25,9 @@ export class RegisterDeviceDto {
   @IsString()
   @MaxLength(64)
   firmwareVersion?: string;
+
+  /** IPv4 of the device module (ESP8266) as seen on LAN — used by commander to reach /command */
+  @IsOptional()
+  @IsIP(4)
+  lastKnownIp?: string;
 }
