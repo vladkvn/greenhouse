@@ -1,0 +1,23 @@
+---
+description: Core principles for all AI work in this repository
+alwaysApply: true
+---
+
+# Core principles
+
+Read [AGENTS.md](../../AGENTS.md) for the full agent playbook.
+
+## Type safety
+
+- Do **not** use type assertions or unsafe escapes (`as`, angle-bracket casts, `any`, `@ts-expect-error` / `@ts-ignore`, non-null `!`) unless the **user explicitly allows** that change in the same thread.
+- Prefer narrowing (type guards), discriminated unions, validation at boundaries (e.g. Zod in TS, Pydantic in Python), and explicit error paths.
+
+## Workflow
+
+- Split work into **small, reviewable steps** (one concern per change). After each step, keep the tree green (lint + typecheck + tests where they exist).
+- For non-trivial work: short **plan first** (2–5 bullets), then implement.
+
+## Clarity
+
+- Prefer clear names and small functions over clever one-liners.
+- Document contracts at module boundaries (APIs, MQTT topics, persistence).

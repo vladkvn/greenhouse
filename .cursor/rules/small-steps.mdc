@@ -1,0 +1,25 @@
+---
+description: Break work into small reviewable steps
+alwaysApply: true
+---
+
+# Small steps, small reviews
+
+## Rule
+
+Every task is split into **minimal self-contained steps**. Each step should be easy to review in isolation and should leave the repo in a consistent state.
+
+## How to split
+
+1. **Scaffold** before behavior (types, interfaces, empty modules).
+2. **One vertical slice** at a time (e.g. one endpoint + one test), not “everything at once”.
+3. **Refactors** separate from behavior changes when possible.
+
+## After each step
+
+- Run **lint** and **typecheck** (and **tests** if present) for affected packages.
+- Prefer one logical commit per step (or one focused PR) so history stays readable.
+
+## Communication
+
+- State what changed, what is intentionally **not** done yet, and the **next** small step.

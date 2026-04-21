@@ -1,0 +1,32 @@
+---
+description: TypeScript — avoid unsafe casts and escapes
+globs: "**/*.{ts,tsx}"
+alwaysApply: false
+---
+
+# TypeScript — no unsafe casts
+
+Unless the **user explicitly permits** a cast or escape hatch in this conversation:
+
+## Disallowed patterns
+
+- `value as SomeType`, `<SomeType>value`
+- `any` (including `as any`)
+- `@ts-ignore`, `@ts-expect-error` to silence errors
+- Non-null assertion `maybe!` when the type is still nullable/undefined
+
+## Preferred patterns
+
+- **Narrow** with guards:
+
+```typescript
+function isString(x: unknown): x is string {
+  return typeof x === "string";
+}
+```
+
+- **Parse at boundaries** with Zod (or similar) and handle failure explicitly instead of casting JSON/env/IPC payloads.
+
+## When the user allows a cast
+
+- Add a **short comment** explaining why a cast is the least-bad option and what invariant makes it safe.
