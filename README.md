@@ -14,7 +14,7 @@
 | [packages/contracts](packages/contracts/README.md) | Общие `Protocol` и Pydantic DTO без ROS (`fleet-contracts`) |
 | [packages/robot](packages/robot/README.md) | ROS 2 workspace (адаптеры навигационного слоя и будущего кода) |
 | [packages/backend](packages/backend/README.md) | Будущий FastAPI-сервис |
-| [packages/sim](packages/sim/README.md) | **`fleet-sim`**: несколько комнат, mocks контрактов, демо `fleet-sim-demo` |
+| [packages/sim](packages/sim/README.md) | **`fleet-sim`**: комнаты, mocks контрактов, `fleet-sim-demo`, окно **`fleet-sim-viz`** (matplotlib) |
 | `infra/` | Инфраструктура по мере появления (Compose, MQTT и др.) |
 
 ## Быстрый старт (контракты Python)
@@ -34,12 +34,12 @@ python -m mypy packages/contracts/src
 После установки контрактов:
 
 ```bash
-pip install -e "packages/sim[dev]"
-fleet-sim-demo
+pip install -e "packages/sim[viz]"
+fleet-sim-demo           # текст в терминале
+fleet-sim-viz            # окно: стены, лучи лидара, робот и цель
 ```
 
 Подробнее: [packages/sim/README.md](packages/sim/README.md).
-
 ## Намеренно не сделано
 
 Полная интеграция ROS 2/Gazebo Nav2, продакшен backend и infra Compose — развиваются отдельными шагами; в `fleet-sim` уже есть воспроизводимое Python-демо без брокера.

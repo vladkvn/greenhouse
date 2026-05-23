@@ -317,7 +317,7 @@ sequenceDiagram
 
 ## Mocks и симуляция (`packages/sim/`)
 
-Исполняемый пакет **`fleet-sim`** (см. [`packages/sim/README.md`](../packages/sim/README.md)): топология из трёх связанных комнат, лидара через рейкаст стен, правдивой локализации (`SimTruthLocalizer`), движка точки в плоскости, геометрического «детектора» цели (`SimPersonDetector`) и демо `fleet-sim-demo` с фазами exploration / follow без ROS.
+Исполняемый пакет **`fleet-sim`** (см. [`packages/sim/README.md`](../packages/sim/README.md)): топология из трёх связанных комнат, лидара через рейкаст стен, правдивой локализации (`SimTruthLocalizer`), движка точки в плоскости, геометрического «детектора» цели (`SimPersonDetector`) и демо `fleet-sim-demo` с фазами exploration / follow без ROS. Для наглядности: **`fleet-sim-viz`** — окно matplotlib со стенами, лучами лидара, роботом и целью.
 
 Имена реализаций (можно подставлять вместо железа и ROS):
 

@@ -9,12 +9,14 @@ description = "Lightweight indoor multi-room Python simulation with fleet_contra
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
+
 [project.scripts]
 fleet-sim-demo = "fleet_sim.demo:main"
+fleet-sim-viz = "fleet_sim.demo_visual:main"
 
 [project.optional-dependencies]
-dev = ["mypy>=1.8", "ruff>=0.6"]
-
+dev = ["mypy>=1.8", "ruff>=0.6", "matplotlib>=3.8"]
+viz = ["matplotlib>=3.8"]
 [tool.setuptools.packages.find]
 where = ["src"]
 

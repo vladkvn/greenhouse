@@ -10,12 +10,13 @@
 
 - Реализации лежат в [`src/fleet_sim/mocks/`](./src/fleet_sim/mocks/).
 - Топология мира: [`world.three_rooms_line_world`](./src/fleet_sim/world.py).
-- Точка входа: `fleet-sim-demo` (см. `[project.scripts]` в `pyproject.toml`).
+- Точки входа: `fleet-sim-demo` (консоль), `fleet-sim-viz` ([`demo_visual.py`](./src/fleet_sim/demo_visual.py) — окно matplotlib).
 
 ## Dependencies
 
 - Python ≥ 3.11
-- Пакет **`fleet-contracts`** из [`packages/contracts`](../contracts/) (установить **перед** или вместе с симом, см. ниже)
+- Пакет **`fleet-contracts`** из [`packages/contracts`](../contracts/)
+- Для окна: **`matplotlib`** (extras `viz` или `dev`, см. ниже)
 
 ## Установка и запуск
 
@@ -25,15 +26,26 @@
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e packages/contracts
-pip install -e "packages/sim[dev]"
-ruff check packages/sim/src && python -m mypy packages/sim/src
+pip install -e "packages/sim[viz]"     # matplotlib + консольные команды
+# или: pip install -e "packages/sim[dev]"  # то же + инструменты ruff/mypy
+ruff check packages/sim/src && python -m mypy packages/sim/src   # при [dev]
 fleet-sim-demo
 ```
 
+Только консольное демо (`fleet-sim-demo`) не требует matplotlib, но установка `[viz]` добавляет и его.
+
+**Окно с картой** — стены, редкие лучи лидара (бирюза, вращаются с роботом), зелёный треугольник робота, красная цель следования:
+
+```bash
+fleet-sim-viz
+```
+
+Нужен доступ к дисплею. При проблемах бэкенда: `export MPLBACKEND=TkAgg` (Linux/macOS часто не требуется).
+
 ## Planned implementations (real / mock / sim)
 
-- Сделано в этом репозитории: много-комнатный мир, лидара рейкаст, truth-localization, геометрический «детектор» цели, демо FSM explore/follow.
-- Далее: unit-тесты рейкаста, визуализация (matplotlib), мост к ROS 2 / Gazebo.
+- Сделано в этом репозитории: много-комнатный мир, лидара рейкаст, truth-localization, геометрический «детектор» цели, демо FSM explore/follow, базовая **визуализация matplotlib**.
+- Далее: unit-тесты рейкаста, мост к ROS 2 / Gazebo.
 
 ## ROS topics / MQTT
 
