@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from greenhouse_contracts.follow import (
+from fleet_contracts.follow import (
     BoundingBoxNormalized,
     EmbeddingVector,
     FollowCommandAccepted,
@@ -13,15 +13,15 @@ from greenhouse_contracts.follow import (
     PersonReIdentifier,
     RankedObservation,
 )
-from greenhouse_contracts.geometry import Pose2D, Twist2D
-from greenhouse_contracts.identifiers import RobotIdField
-from greenhouse_contracts.localization import (
+from fleet_contracts.geometry import Pose2D, Twist2D
+from fleet_contracts.identifiers import RobotIdField
+from fleet_contracts.localization import (
     LocalizationEstimate,
     LocalizationSnapshot,
     LocalizationStatus,
     Localizer,
 )
-from greenhouse_contracts.mapping import (
+from fleet_contracts.mapping import (
     MapBuilder,
     MapExtents,
     MapSessionResult,
@@ -29,7 +29,7 @@ from greenhouse_contracts.mapping import (
     PersistedMap,
     PersistMapResult,
 )
-from greenhouse_contracts.messaging import (
+from fleet_contracts.messaging import (
     MQTT_TOPIC_PREFIX,
     AckStatus,
     BeginFollow,
@@ -48,8 +48,8 @@ from greenhouse_contracts.messaging import (
     robot_base_topic,
     telemetry_topic,
 )
-from greenhouse_contracts.motion import MotionController
-from greenhouse_contracts.navigation import (
+from fleet_contracts.motion import MotionController
+from fleet_contracts.navigation import (
     GoalNavigator,
     NavigationCancellation,
     NavigationFailure,
@@ -60,8 +60,8 @@ from greenhouse_contracts.navigation import (
     PlanningOutcome,
     PlanningUnavailable,
 )
-from greenhouse_contracts.orchestration import MissionHandler, RobotBehavior
-from greenhouse_contracts.perception import (
+from fleet_contracts.orchestration import MissionHandler, RobotBehavior
+from fleet_contracts.perception import (
     CameraFrame,
     CameraSource,
     ImuSample,
@@ -69,7 +69,7 @@ from greenhouse_contracts.perception import (
     LaserScan,
     LidarSource,
 )
-from greenhouse_contracts.telemetry_bridge import (
+from fleet_contracts.telemetry_bridge import (
     CommandDispatchHandler,
     CommandSubscriber,
     TelemetryDispatchResult,

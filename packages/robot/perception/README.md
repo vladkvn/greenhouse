@@ -6,11 +6,11 @@
 
 ## Interface
 
-Контракты [`LidarSource`](../../contracts/README.md), [`CameraSource`](../../contracts/README.md), [`ImuSource`](../../contracts/README.md) из `greenhouse_contracts.perception`.
+Контракты [`LidarSource`](../../contracts/README.md), [`CameraSource`](../../contracts/README.md), [`ImuSource`](../../contracts/README.md) из `fleet_contracts.perception`.
 
 ## Dependencies
 
-ROS 2 ноды/драйверы сенсоров; пакет `greenhouse-contracts`.
+ROS 2 ноды/драйверы сенсоров; пакет `fleet-contracts`.
 
 ## Planned implementations (real / mock / sim)
 

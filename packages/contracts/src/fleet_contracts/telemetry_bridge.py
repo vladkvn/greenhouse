@@ -6,7 +6,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, Field
 
-from greenhouse_contracts.messaging import CommandAck, CommandPayloadUnion, TelemetryEnvelope
+from fleet_contracts.messaging import CommandAck, CommandPayloadUnion, TelemetryEnvelope
 
 
 class TelemetryDispatchResult(BaseModel):

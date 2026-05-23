@@ -6,11 +6,11 @@ Onboard программное обеспечение: ROS 2 workspace на Rasp
 
 ## Interface
 
-Подмодули экспортируют ROS 2 узлы или библиотеки, которые через адаптеры удовлетворяют Protocol из `greenhouse_contracts`.
+Подмодули экспортируют ROS 2 узлы или библиотеки, которые через адаптеры удовлетворяют Protocol из `fleet_contracts`.
 
 ## Dependencies
 
-ROS 2 (дистро уточнить при сборке образа); Python 3.x дистро; локальная установка `greenhouse-contracts`.
+ROS 2 (дистро уточнить при сборке образа); Python 3.x дистро; локальная установка `fleet-contracts`.
 
 ## Planned implementations (real / mock / sim)
 

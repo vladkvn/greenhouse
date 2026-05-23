@@ -6,11 +6,11 @@
 
 ## Interface
 
-[`Localizer`](../../contracts/README.md) в `greenhouse_contracts.localization`.
+[`Localizer`](../../contracts/README.md) в `fleet_contracts.localization`.
 
 ## Dependencies
 
-Nav2 AMCL или аналог; `greenhouse-contracts`.
+Nav2 AMCL или аналог; `fleet-contracts`.
 
 ## Planned implementations (real / mock / sim)
 
@@ -26,4 +26,4 @@ Mock фиксированной позы в `packages/sim`; реальный ACM
 
 ## Not done yet
 
-Стратегия восстановления позы в теплице.
+Стратегия восстановления позы в условиях помещений.

@@ -10,7 +10,7 @@
 
 ## Dependencies
 
-FastAPI, PostgreSQL (async-драйвер), MQTT-клиент, `greenhouse-contracts`.
+FastAPI, PostgreSQL (async-драйвер), MQTT-клиент, `fleet-contracts`.
 
 ## Planned implementations (real / mock / sim)
 

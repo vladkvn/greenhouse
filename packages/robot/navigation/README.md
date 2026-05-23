@@ -6,11 +6,11 @@
 
 ## Interface
 
-[`GoalNavigator`](../../contracts/README.md), [`PathPlanner`](../../contracts/README.md) в `greenhouse_contracts.navigation`.
+[`GoalNavigator`](../../contracts/README.md), [`PathPlanner`](../../contracts/README.md) в `fleet_contracts.navigation`.
 
 ## Dependencies
 
-Nav2 (NavigateToPose et al.); `greenhouse-contracts`.
+Nav2 (NavigateToPose et al.); `fleet-contracts`.
 
 ## Planned implementations (real / mock / sim)
 
@@ -22,4 +22,4 @@ Nav2 (NavigateToPose et al.); `greenhouse-contracts`.
 
 ## Not done yet
 
-Параметры costmap под растения и проходы в теплице.
+Параметры costmap под препятствия помещений и узкие проходы.

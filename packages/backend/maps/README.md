@@ -6,7 +6,7 @@
 
 ## Interface
 
-Контракты будут добавлены в `greenhouse_contracts` (например `MapDescriptor`, `MapSyncRequest`) при первой реализации.
+Контракты будут добавлены в `fleet_contracts` (например `MapDescriptor`, `MapSyncRequest`) при первой реализации.
 
 ## Dependencies
 

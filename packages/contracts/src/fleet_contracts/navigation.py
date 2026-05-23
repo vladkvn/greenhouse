@@ -6,7 +6,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from greenhouse_contracts.geometry import Pose2D
+from fleet_contracts.geometry import Pose2D
 
 
 class PathSegment(BaseModel):

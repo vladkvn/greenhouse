@@ -6,11 +6,11 @@
 
 ## Interface
 
-[`MapBuilder`](../../contracts/README.md), [`MapStore`](../../contracts/README.md) в `greenhouse_contracts.mapping`.
+[`MapBuilder`](../../contracts/README.md), [`MapStore`](../../contracts/README.md) в `fleet_contracts.mapping`.
 
 ## Dependencies
 
-Планируемый интеграционный слой около `slam_toolbox` / Nav2 map server; пакет `greenhouse-contracts`.
+Планируемый интеграционный слой около `slam_toolbox` / Nav2 map server; пакет `fleet-contracts`.
 
 ## Planned implementations (real / mock / sim)
 

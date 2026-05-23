@@ -1,6 +1,6 @@
-# Архитектура GreenHouse Robot
+# Архитектура платформы GreenHouse
 
-Документ описывает целевую архитектуру monorepo: onboard (Python + ROS 2 на Raspberry Pi), симуляцию/mocks, backend (FastAPI + PostgreSQL + MQTT) для флота роботов в теплице.
+Документ описывает целевую архитектуру monorepo: onboard (Python + ROS 2 на Raspberry Pi), симуляцию/mocks, backend (FastAPI + PostgreSQL + MQTT) для **управления группой мобильных роботов**.
 
 Подробнее о принципах разработки: [AGENTS.md](../AGENTS.md).
 
@@ -9,7 +9,7 @@
 | Область | Решение |
 |---------|---------|
 | Onboard | Python + ROS 2, Raspberry Pi 4/5 |
-| Среда | Теплица (indoor), 2D-навигация |
+| Среда | Indoor-помещения, 2D-навигация |
 | Датчики | Абстрактные интерфейсы; конкретные модели лидара/камеры подключаются адаптерами |
 | Следование | Computer vision + re-identification человека |
 | Движение | Абстрактный `MotionController`; реальная платформа позже |
@@ -127,7 +127,7 @@ stateDiagram-v2
 
 - **Protocol**: интерфейсы сенсоров, навигации, движения, телеметрии — см. код пакета.
 - **Pydantic-модели**: payload команд, телеметрии, состояние робота.
-- **MQTT**: имена топиков — `greenhouse.messaging`; схемы JSON совпадают с DTO.
+- **MQTT**: префикс и дерево топиков — см. `fleet_contracts.messaging`; схемы JSON совпадают с DTO.
 - **Robot id**: строка без пробелов (`^[a-zA-Z0-9_-]+$`); задаётся при регистрации.
 
 Robot и backend импортируют типы только из `contracts`; ROS остаётся в адаптерах `packages/robot`.
@@ -146,7 +146,7 @@ Robot и backend импортируют типы только из `contracts`; 
 
 ## MQTT: дерево топиков (контракт)
 
-Базовый префикс: `greenhouse/robots/{robot_id}`.
+Базовый префикс: `fleet/robots/{robot_id}`.
 
 | Топик | Направление | Описание |
 |-------|-------------|----------|
@@ -154,7 +154,7 @@ Robot и backend импортируют типы только из `contracts`; 
 | `.../commands` | Backend → Robot | Команды `go_to`, `follow_person`, `stop`, `start_mapping` и т.д. |
 | `.../commands/ack` | Robot → Backend | Подтверждение/отказ (JSON по схеме `CommandAck`) |
 
-Подробности полей: исходники в [`../packages/contracts/src/greenhouse_contracts/`](../packages/contracts/src/greenhouse_contracts/) (начните с `messaging.py`).
+Подробности полей: исходники в [`../packages/contracts/src/fleet_contracts/`](../packages/contracts/src/fleet_contracts/) (начните с `messaging.py`).
 
 ## REST API (контракт без реализации)
 
@@ -197,7 +197,7 @@ sequenceDiagram
 
 Далее: Gazebo + мост к тем же контрактам.
 
-## Заметки для теплицы и RPi
+## Заметки по indoor и RPi
 
 - **SLAM:** ориентация на 2D лидар и `slam_toolbox` или аналог в ROS 2.
 - **Nav2:** планирование и контроль для indoor.

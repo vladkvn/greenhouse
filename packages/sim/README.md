@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Mock-реализации интерфейсов `greenhouse_contracts` и в перспективе симуляция (Gazebo/другой движок) с теми же adapter-границами.
+Mock-реализации интерфейсов `fleet_contracts` и в перспективе симуляция (Gazebo/другой движок) с теми же adapter-границами.
 
 ## Interface
 
@@ -10,7 +10,7 @@ Mock-реализации интерфейсов `greenhouse_contracts` и в п
 
 ## Dependencies
 
-Только `greenhouse-contracts` для моков; симуляция добавит ROS 2 и launch-файлы.
+Только `fleet-contracts` для моков; симуляция добавит ROS 2 и launch-файлы.
 
 ## Planned implementations (real / mock / sim)
 

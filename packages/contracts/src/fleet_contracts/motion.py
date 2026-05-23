@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from greenhouse_contracts.geometry import Twist2D
+from fleet_contracts.geometry import Twist2D
 
 
 class MotionController(Protocol):

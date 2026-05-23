@@ -6,7 +6,7 @@
 
 ## Interface
 
-Командный payload: сообщения вида discriminated union в `greenhouse_contracts.messaging`; ack — `CommandAck`.
+Командный payload: сообщения вида discriminated union в `fleet_contracts.messaging`; ack — `CommandAck`.
 
 ## Dependencies
 
@@ -18,7 +18,7 @@ MQTT publisher; возможная идемпотентность через `co
 
 ## ROS topics / MQTT
 
-`greenhouse/robots/{robot_id}/commands`, `.../commands/ack`.
+`fleet/robots/{robot_id}/commands`, `.../commands/ack`.
 
 ## Not done yet
 

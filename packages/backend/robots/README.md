@@ -6,7 +6,7 @@
 
 ## Interface
 
-DTO робота определяются в `greenhouse_contracts.messaging` (идентификаторы и envelope) расширяются при добавлении API.
+DTO робота определяются в `fleet_contracts.messaging` (идентификаторы и envelope) расширяются при добавлении API.
 
 ## Dependencies
 

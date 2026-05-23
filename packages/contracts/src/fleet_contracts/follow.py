@@ -6,7 +6,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, Field
 
-from greenhouse_contracts.perception import CameraFrame
+from fleet_contracts.perception import CameraFrame
 
 
 class BoundingBoxNormalized(BaseModel):

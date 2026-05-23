@@ -6,7 +6,7 @@
 
 ## Interface
 
-[`TelemetryPublisher`](../../contracts/README.md), [`CommandSubscriber`](../../contracts/README.md) в `greenhouse_contracts.telemetry_bridge`; DTO из `greenhouse_contracts.messaging`.
+[`TelemetryPublisher`](../../contracts/README.md), [`CommandSubscriber`](../../contracts/README.md) в `fleet_contracts.telemetry_bridge`; DTO из `fleet_contracts.messaging`.
 
 ## Dependencies
 
@@ -18,7 +18,7 @@
 
 ## ROS topics / MQTT
 
-MQTT префикс `greenhouse/robots/{robot_id}` см. docs/ARCHITECTURE.md.
+MQTT префикс `fleet/robots/{robot_id}` см. docs/ARCHITECTURE.md.
 
 ## Not done yet
 

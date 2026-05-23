@@ -6,7 +6,7 @@
 
 ## Interface
 
-[`MotionController`](../../contracts/README.md) в `greenhouse_contracts.motion`.
+[`MotionController`](../../contracts/README.md) в `fleet_contracts.motion`.
 
 ## Dependencies
 

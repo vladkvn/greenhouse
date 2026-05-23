@@ -6,7 +6,8 @@
 
 ## Interface
 
-См. импорт из пакета `greenhouse_contracts` после установки в editable-режиме (`pip install -e packages/contracts`). Модули: `identifiers`, `geometry`, `perception`, `mapping`, `localization`, `navigation`, `follow`, `motion`, `orchestration`, `telemetry_bridge`, `messaging`.
+См. импорт из пакета `fleet_contracts` после установки в editable-режиме (`pip install -e packages/contracts`). Модули: `identifiers`, `geometry`, `perception`, `mapping`, `localization`, `navigation`, `follow`, `motion`, `orchestration`, `telemetry_bridge`, `messaging`.
+
 ## Dependencies
 
 Python ≥ 3.11, `pydantic>=2`.
@@ -18,7 +19,7 @@ Python ≥ 3.11, `pydantic>=2`.
 
 ## ROS topics / MQTT
 
-Описание топиков MQTT и полей сообщений см. [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) и [`greenhouse_contracts.messaging`](./src/greenhouse_contracts/messaging.py).
+Описание топиков MQTT и полей сообщений см. [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) и [`fleet_contracts.messaging`](./src/fleet_contracts/messaging.py).
 
 ## Not done yet
 

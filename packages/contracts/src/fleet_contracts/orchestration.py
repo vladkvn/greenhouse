@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from greenhouse_contracts.messaging import CommandAck, CommandPayloadUnion, RobotMode
+from fleet_contracts.messaging import CommandAck, CommandPayloadUnion, RobotMode
 
 
 class RobotBehavior(Protocol):

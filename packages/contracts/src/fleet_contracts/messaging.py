@@ -7,10 +7,10 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
-from greenhouse_contracts.geometry import Pose2D
-from greenhouse_contracts.identifiers import RobotIdField
+from fleet_contracts.geometry import Pose2D
+from fleet_contracts.identifiers import RobotIdField
 
-MQTT_TOPIC_PREFIX = "greenhouse"
+MQTT_TOPIC_PREFIX = "fleet"
 
 
 class RobotMode(StrEnum):
@@ -23,7 +23,7 @@ class RobotMode(StrEnum):
 
 
 def robot_base_topic(robot_id: str) -> str:
-    """Return namespace segment `greenhouse/robots/<robot_id>`."""
+    """Return namespace segment `fleet/robots/<robot_id>`."""
 
     return f"{MQTT_TOPIC_PREFIX}/robots/{robot_id}"
 

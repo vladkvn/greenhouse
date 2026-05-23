@@ -6,7 +6,7 @@
 
 ## Interface
 
-Общая схема: `TelemetryEnvelope` в `greenhouse_contracts.messaging`.
+Общая схема: `TelemetryEnvelope` в `fleet_contracts.messaging`.
 
 ## Dependencies
 
@@ -18,7 +18,7 @@ Batch insert по настраиваемой частоте; отдельный 
 
 ## ROS topics / MQTT
 
-`greenhouse/robots/{robot_id}/telemetry`.
+`fleet/robots/{robot_id}/telemetry`.
 
 ## Not done yet
 

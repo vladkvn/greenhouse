@@ -6,7 +6,7 @@
 
 ## Interface
 
-[`PersonDetector`](../../contracts/README.md), [`PersonReIdentifier`](../../contracts/README.md), [`FollowController`](../../contracts/README.md) в `greenhouse_contracts.follow`.
+[`PersonDetector`](../../contracts/README.md), [`PersonReIdentifier`](../../contracts/README.md), [`FollowController`](../../contracts/README.md) в `fleet_contracts.follow`.
 
 ## Dependencies
 

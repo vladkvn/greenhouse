@@ -3,9 +3,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "greenhouse-contracts"
+name = "fleet-contracts"
 version = "0.1.0"
-description = "Shared typed contracts for GreenHouse robot, sim, and backend"
+description = "Shared typed contracts for mobile robot fleet, sim, and backend"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["pydantic>=2.6"]
@@ -14,7 +14,7 @@ dependencies = ["pydantic>=2.6"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-greenhouse_contracts = ["py.typed"]
+fleet_contracts = ["py.typed"]
 
 [project.optional-dependencies]
 dev = ["mypy>=1.8", "ruff>=0.6"]
@@ -30,5 +30,5 @@ select = ["E", "F", "I"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-packages = ["greenhouse_contracts"]
+packages = ["fleet_contracts"]
 mypy_path = "src"
