@@ -82,6 +82,135 @@ flowchart TB
   MockMotion -.-> Motion
 ```
 
+## UML-модели модулей
+
+Ниже — **структурный** взгляд (пакеты, контракты, развёртывание). **Поведенческая** топология потоков данных между подсистемами — в разделе **«Диаграмма системы»** выше; машина режимов — в разделе **«Режимы работы робота»** ниже.
+
+### Пакеты и зависимости от контрактов
+
+Стереотип **`<<interface>>`** соответствует `Protocol` в Python ([`fleet_contracts`](../packages/contracts/src/fleet_contracts/)). Связь **`..>`** — зависимость (*use*); **`..|>`** — реализация интерфейса (*implements*). Пунктир от **Sim** — подстановка реализаций при разработке и тестах.
+
+```mermaid
+classDiagram
+  namespace fleet_contracts {
+    class LidarSource {
+      <<interface>>
+    }
+    class CameraSource {
+      <<interface>>
+    }
+    class MapBuilder {
+      <<interface>>
+    }
+    class Localizer {
+      <<interface>>
+    }
+    class GoalNavigator {
+      <<interface>>
+    }
+    class FollowController {
+      <<interface>>
+    }
+    class MotionController {
+      <<interface>>
+    }
+    class MissionHandler {
+      <<interface>>
+    }
+    class RobotBehavior {
+      <<interface>>
+    }
+    class TelemetryPublisher {
+      <<interface>>
+    }
+    class CommandSubscriber {
+      <<interface>>
+    }
+    class MessagingDTOs {
+      <<DTO>>
+    }
+  }
+
+  namespace robot_onboard {
+    class Orchestration
+    class PerceptionAdapters
+    class MappingSubsystem
+    class LocalizationSubsystem
+    class NavigationSubsystem
+    class FollowSubsystem
+    class MotionAdapter
+    class TelemetryBridge
+  }
+
+  namespace backend {
+    class RestAPI
+    class MqttInbound
+    class MqttCommands
+    class RobotsRegistry
+  }
+
+  namespace sim {
+    class Mocks
+  }
+
+  PerceptionAdapters ..|> LidarSource : implements
+  PerceptionAdapters ..|> CameraSource : implements
+  MappingSubsystem ..> MapBuilder : use
+  LocalizationSubsystem ..> Localizer : use
+  NavigationSubsystem ..> GoalNavigator : use
+  FollowSubsystem ..> FollowController : use
+  MotionAdapter ..|> MotionController : implements
+
+  Orchestration ..|> MissionHandler : implements
+  Orchestration ..|> RobotBehavior : implements
+  Orchestration ..> MapBuilder : use
+  Orchestration ..> GoalNavigator : use
+  Orchestration ..> FollowController : use
+  Orchestration ..> MotionController : use
+  Orchestration ..> Localizer : use
+
+  TelemetryBridge ..> TelemetryPublisher : use
+  TelemetryBridge ..> CommandSubscriber : use
+  TelemetryBridge ..> MessagingDTOs : use
+  TelemetryBridge ..> Orchestration : dispatches_to
+
+  MqttInbound ..> MessagingDTOs : validates
+  MqttCommands ..> MessagingDTOs : emits
+
+  RestAPI --> RobotsRegistry
+  RestAPI --> MqttCommands
+
+  Mocks ..|> LidarSource : implements
+  Mocks ..|> CameraSource : implements
+  Mocks ..|> MotionController : implements
+```
+
+**Кратко:** оркестратор реализует `MissionHandler` и `RobotBehavior` и управляет режимами, дергая остальные подсистемы только через интерфейсы из `fleet_contracts`. Входящие команды попадают в оркестратор через связку `TelemetryBridge`/`CommandSubscriber` и доменную модель `fleet_contracts.messaging`. Backend сериализует и валидирует тот же набор DTO (например `TelemetryEnvelope`, дискриминированные полезные нагрузки команд), без привязки к ROS.
+
+### Развёртывание (упрощённо)
+
+```mermaid
+flowchart TB
+  subgraph dev [Dev_host]
+    SIM["«development» Sim_mocks"]
+  end
+  subgraph onboard_deploy [Onboard]
+    RPi["«device» Raspberry_Pi ROS2_runtime"]
+  end
+  subgraph cloud [Backend_host]
+    BE["«component» FastAPI"]
+    DB[("«device» PostgreSQL")]
+  end
+  Broker["«node» Mosquitto_MQTT"]
+
+  RPi --> Broker
+  Broker --> BE
+  BE --> DB
+  SIM -. "implements same Protocols" .-> RPi
+```
+
+На этапе разработки **Sim** подставляет реализации контрактов вместо реальных нод; в проде обмен «робот ↔ облако» идёт через брокер по префиксу `fleet/robots/{robot_id}/…` (описано в разделе **MQTT: дерево топиков** ниже).
+
 ## Режимы работы робота
 
 Оркестратор — единая точка переключения режимов; модули общаются через контракты, а не жёсткие связи между пакетами.
