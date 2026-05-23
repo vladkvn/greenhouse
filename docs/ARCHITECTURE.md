@@ -317,7 +317,7 @@ sequenceDiagram
 
 ## Mocks и симуляция (`packages/sim/`)
 
-Исполняемый пакет **`fleet-sim`** (см. [`packages/sim/README.md`](../packages/sim/README.md)): топология из трёх связанных комнат, лидара через рейкаст тех же **`PolygonWorld.walls`**, что задают узкие дверные проёмы; правдивая локализация (`SimTruthLocalizer`); интегратор с проверкой **дискового footprint** против этих же стен при шаге (`SimState.robot_inscribed_radius_m`, [`footprint`](../packages/sim/src/fleet_sim/footprint.py)); «детектор» цели (`SimPersonDetector`); демо `fleet-sim-demo` exploration / follow без ROS. В follow — **A* по сетке** при том же радиусе отпечатка и сегментных **`walls`** как препятствий, упрощение полилинии по проверке хорд; в **`fleet-sim-viz`** траектория — фиолетовая ломаная.
+Исполняемый пакет **`fleet-sim`** (см. [`packages/sim/README.md`](../packages/sim/README.md)): топология по умолчанию — **длинные параллельные ряды парника** (`greenhouse_parallel_rows_world`: проходы вдоль +X, между ними полосы-преграды с дверными метрами проёмов под одной высотой; компактная схема из трёх комнат остаётся как `three_rooms_line_world`); лидара через рейкаст общих **`PolygonWorld.walls`**; локализация «истины» (`SimTruthLocalizer`); шаг робота против **`walls`** с дисковым footprint (`SimState.robot_inscribed_radius_m`, [`footprint`](../packages/sim/src/fleet_sim/footprint.py)); следование к цели; демо `fleet-sim-demo` exploration/follow без ROS. В follow — **A* по сетке** с теми же **`walls`**; **`fleet-sim-viz`** рисуется фиолетовым маршрутом поверх топологии.
 
 Имена реализаций (можно подставлять вместо железа и ROS):
 

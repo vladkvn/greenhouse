@@ -16,6 +16,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Polygon
 
 from fleet_sim.demo_runner import ExploreFollowDemo
+from fleet_sim.world import world_axis_aligned_bbox, world_plot_bounds_xy
 
 
 class _FollowTargetDragHandler:
@@ -136,15 +137,27 @@ class _RobotMarker:
 
 
 def main() -> None:
-    demo = ExploreFollowDemo(max_steps=6500)
+    demo = ExploreFollowDemo(max_steps=11_200)
 
-    fig, ax = plt.subplots(figsize=(11.0, 4.75))
+    x_bounds, y_bounds = world_plot_bounds_xy(demo.world)
+    xmin, xmax, ymin, ymax = world_axis_aligned_bbox(demo.world)
+    core_x = max(9.5e-3, xmax - xmin)
+    core_y = max(9.5e-3, ymax - ymin)
+    aspect_geom = core_y / core_x if core_x > 1e-6 else 0.62
+    fig_width_inches = max(16.92, core_x / 5.125)
+    fig_height_inches = min(62.982, max(9.982, fig_width_inches * aspect_geom))
+
+    fig, ax = plt.subplots(figsize=(fig_width_inches, fig_height_inches))
     mgr = fig.canvas.manager
     if mgr is not None:
         try:
-            mgr.set_window_title("fleet-sim — комнаты, лидар, цель (ЛКМ: перетащить)")
+            mgr.set_window_title("fleet-sim — парник: длинные ряды, лидар, цель")
         except AttributeError:
             pass
+
+    ax.set_aspect("equal", adjustable="datalim")
+    ax.set_xlim(*x_bounds)
+    ax.set_ylim(*y_bounds)
 
     wall_segments = [((w.x0, w.y0), (w.x1, w.y1)) for w in demo.world.walls]
     walls_lc = LineCollection(wall_segments, colors="#37474f", linewidths=2.4)
@@ -194,9 +207,6 @@ def main() -> None:
         color="#263238",
     )
 
-    ax.set_aspect("equal", adjustable="datalim")
-    ax.set_xlim(-0.45, 12.95)
-    ax.set_ylim(-0.4, 4.75)
     ax.set_xlabel("x, м")
     ax.set_ylabel("y, м")
     ax.grid(True, linestyle=":", alpha=0.45)

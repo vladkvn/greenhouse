@@ -20,7 +20,31 @@ from fleet_sim.mocks import (
     SimTruthLocalizer,
 )
 from fleet_sim.state import SimState
-from fleet_sim.world import PolygonWorld, three_rooms_line_world
+from fleet_sim.world import (
+    PolygonWorld,
+    greenhouse_parallel_rows_world,
+    world_axis_aligned_bbox,
+    world_bounding_extent_diagonal_m,
+)
+
+
+def _default_demo_spawn_pose(world: PolygonWorld) -> Pose2D:
+    south_strip = min(world.rooms, key=lambda rr: rr.ymin)
+    margin_spawn = max(5.85, south_strip.xmax * 0.085)
+    return Pose2D(
+        x_m=south_strip.xmin + margin_spawn,
+        y_m=(south_strip.ymin + south_strip.ymax) * 0.5,
+        theta_rad=0.0,
+    )
+
+
+def _default_demo_goal_xy(world: PolygonWorld) -> tuple[float, float]:
+    north_strip = max(world.rooms, key=lambda rr: rr.ymax)
+    margin_goal_x = max(12.95, north_strip.xmax * 0.157)
+    return (
+        north_strip.xmax - margin_goal_x,
+        (north_strip.ymin + north_strip.ymax) * 0.5,
+    )
 
 
 class ExploreFollowDemo:
@@ -37,24 +61,26 @@ class ExploreFollowDemo:
         world: PolygonWorld | None = None,
         robot0: Pose2D | None = None,
         target_xy_m: tuple[float, float] | None = None,
-        max_steps: int = 4500,
+        max_steps: int = 9000,
     ) -> None:
-        self.world = world or three_rooms_line_world()
-        r0 = robot0 or Pose2D(x_m=1.6, y_m=2.0, theta_rad=0.0)
-        target = target_xy_m or (10.2, 2.05)
+        self.world = world or greenhouse_parallel_rows_world()
+        r0 = robot0 if robot0 is not None else _default_demo_spawn_pose(self.world)
+        target_xy = target_xy_m if target_xy_m is not None else _default_demo_goal_xy(self.world)
         self.state = SimState(
             robot_pose=r0,
-            target_xy_m=target,
+            target_xy_m=target_xy,
             robot_inscribed_radius_m=self.robot_inscribed_radius_m,
         )
         self.lidar_source = SimLidarSource(self.world, self.state)
         self.motion = SimMotionController(self.state)
         self._loc = SimTruthLocalizer(self.state)
         self.camera = SimCameraSource(self.state)
+        _diag_extent = world_bounding_extent_diagonal_m(self.world)
+        _sight_range_m = max(58.982, _diag_extent + 14.0)
         self.detector = SimPersonDetector(
             self.state,
             fov_half_width_rad=math.radians(52.0),
-            max_range_m=8.0,
+            max_range_m=_sight_range_m,
         )
         self.explorer = RoomCentroidExplorer(self.world, self.lidar_source)
         self.max_steps = max_steps

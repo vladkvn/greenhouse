@@ -9,7 +9,7 @@
 ## Interface
 
 - Реализации лежат в [`src/fleet_sim/mocks/`](./src/fleet_sim/mocks/), помощники планирования в [`footprint.py`](./src/fleet_sim/footprint.py) и [`grid_nav.py`](./src/fleet_sim/grid_nav.py).
-- Топология мира: [`world.three_rooms_line_world`](./src/fleet_sim/world.py).
+- Топология мира по умолчанию: **`greenhouse_parallel_rows_world`** — длинные параллельные ряды («проходы парника») с полосами-грядками между ними и выровненными проёмами; для регрессий остаётся компактная схема **`three_rooms_line_world`**.
 - Точки входа: `fleet-sim-demo` (консоль), `fleet-sim-viz` ([`demo_visual.py`](./src/fleet_sim/demo_visual.py) — окно matplotlib).
 
 ## Dependencies

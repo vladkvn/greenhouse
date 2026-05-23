@@ -116,6 +116,145 @@ def three_rooms_line_world() -> PolygonWorld:
     return PolygonWorld(rooms=rooms, walls=tuple(walls))
 
 
+def _segments_on_horizontal_line(
+    wall_y_m: float,
+    x_span_lo: float,
+    x_span_hi: float,
+    door_openings_x_m: tuple[tuple[float, float], ...],
+) -> tuple[LineSegment, ...]:
+    """Pieces of a horizontal obstruction line minus rectangular door openings in X."""
+
+    if x_span_hi <= x_span_lo + 1e-9:
+        return ()
+    carve: list[tuple[float, float]] = []
+    for x_o_lo, x_o_hi in door_openings_x_m:
+        clipped_lo = max(x_span_lo, min(x_o_lo, x_o_hi))
+        clipped_hi = min(x_span_hi, max(x_o_lo, x_o_hi))
+        if clipped_hi <= clipped_lo + 1e-9:
+            continue
+        carve.append((clipped_lo, clipped_hi))
+    carve.sort(key=lambda interval: interval[0])
+    merged_ranges: list[tuple[float, float]] = []
+    pass_index = 0
+    while pass_index < len(carve):
+        run_lo = carve[pass_index][0]
+        run_hi = carve[pass_index][1]
+        next_index = pass_index + 1
+        while next_index < len(carve) and carve[next_index][0] <= run_hi + 7e-2:
+            run_hi = max(run_hi, carve[next_index][1])
+            next_index += 1
+        merged_ranges.append((run_lo, run_hi))
+        pass_index = next_index
+    out: list[LineSegment] = []
+    crawl_x = x_span_lo
+    merge_index = 0
+    while merge_index < len(merged_ranges):
+        gap_left, gap_right = merged_ranges[merge_index]
+        if gap_left > crawl_x + 8e-3:
+            out.append(LineSegment(crawl_x, wall_y_m, gap_left, wall_y_m))
+        crawl_x = max(crawl_x, gap_right)
+        merge_index += 1
+    if crawl_x < x_span_hi - 8e-3:
+        out.append(LineSegment(crawl_x, wall_y_m, x_span_hi, wall_y_m))
+    return tuple(out)
+
+
+def world_axis_aligned_bbox(world: PolygonWorld) -> tuple[float, float, float, float]:
+    xmin = min(r.xmin for r in world.rooms)
+    xmax = max(r.xmax for r in world.rooms)
+    ymin = min(r.ymin for r in world.rooms)
+    ymax = max(r.ymax for r in world.rooms)
+    return xmin, xmax, ymin, ymax
+
+
+def world_bounding_extent_diagonal_m(world: PolygonWorld) -> float:
+    """Straight-line span of hull corners (lid / detection range heuristic)."""
+
+    xmin, xmax, ymin, ymax = world_axis_aligned_bbox(world)
+    return math.hypot(xmax - xmin, ymax - ymin)
+
+
+def world_plot_bounds_xy(
+    world: PolygonWorld,
+    *,
+    margin_left_m: float = 2.75,
+    margin_right_m: float = 4.25,
+    margin_bottom_m: float = 2.75,
+    margin_top_m: float = 6.75,
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    xmin, xmax, ymin, ymax = world_axis_aligned_bbox(world)
+    return (
+        (xmin - margin_left_m, xmax + margin_right_m),
+        (ymin - margin_bottom_m, ymax + margin_top_m),
+    )
+
+
+def greenhouse_parallel_rows_world(
+    *,
+    length_x_m: float = 56.0,
+    n_parallel_aisles: int = 6,
+    aisle_width_m: float = 2.05,
+    bed_strip_between_m: float = 0.38,
+    door_centers_x_m: tuple[float, ...] = (9.75, 28.75, 47.95),
+    door_half_width_m: float = 0.7,
+    cross_passage_half_width_m: float = 0.76,
+) -> PolygonWorld:
+    """Toy greenhouse footprint: parallel long walkways (+X) with bed strips and door gaps.
+
+    Each walkway is navigable rectangle ``[0, length_x_m] × aisles``. Narrow horizontal
+    wall segments occupy the obstacle strip between walkways, carving aligned door gaps.
+    Thin cross rectangles under doors connect neighbouring aisles.
+    """
+
+    if n_parallel_aisles < 2:
+        raise ValueError("n_parallel_aisles must be >= 2")
+
+    door_intervals_x: tuple[tuple[float, float], ...] = tuple(
+        (cx - door_half_width_m, cx + door_half_width_m) for cx in door_centers_x_m
+    )
+    accumulated_rooms: list[Room] = []
+    accumulated_walls: list[LineSegment] = []
+    next_label = 0
+    walker_y = 0.0
+    for aisle_index in range(n_parallel_aisles):
+        y_floor = walker_y
+        y_ceiling = walker_y + aisle_width_m
+        accumulated_rooms.append(
+            Room(0.0, length_x_m, y_floor, y_ceiling, f"bay-{next_label:03d}"),
+        )
+        next_label += 1
+        walker_y = y_ceiling
+        if aisle_index == n_parallel_aisles - 1:
+            break
+        stripe_lo_y = walker_y
+        stripe_hi_y = walker_y + bed_strip_between_m
+        obstruction_y_wall = stripe_lo_y + 0.5 * bed_strip_between_m
+        for door_cx in door_centers_x_m:
+            lx = door_cx - cross_passage_half_width_m
+            rx = door_cx + cross_passage_half_width_m
+            accumulated_rooms.append(Room(lx, rx, stripe_lo_y, stripe_hi_y, f"lnk-{next_label:03d}"))
+            next_label += 1
+        accumulated_walls.extend(
+            _segments_on_horizontal_line(obstruction_y_wall, 0.0, length_x_m, door_intervals_x),
+        )
+        walker_y = stripe_hi_y
+
+    hull_x_min = 0.0
+    hull_y_min = min(r.ymin for r in accumulated_rooms)
+    hull_x_max = length_x_m
+    hull_y_max = max(r.ymax for r in accumulated_rooms)
+    outer_box = (
+        LineSegment(hull_x_min, hull_y_min, hull_x_max, hull_y_min),
+        LineSegment(hull_x_max, hull_y_min, hull_x_max, hull_y_max),
+        LineSegment(hull_x_max, hull_y_max, hull_x_min, hull_y_max),
+        LineSegment(hull_x_min, hull_y_max, hull_x_min, hull_y_min),
+    )
+    return PolygonWorld(
+        rooms=tuple(accumulated_rooms),
+        walls=tuple(list(outer_box) + accumulated_walls),
+    )
+
+
 def pairwise_room_adjacency(room_a: Room, room_b: Room) -> bool:
     """Adjacent if they touch on an axis-aligned edge (overlap of projection)."""
 
