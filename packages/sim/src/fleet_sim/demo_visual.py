@@ -10,9 +10,77 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 from matplotlib.patches import Polygon
 
 from fleet_sim.demo_runner import ExploreFollowDemo
+
+
+class _FollowTargetDragHandler:
+    """Move the red follow-target marker by dragging within the axes."""
+
+    _pick_radius_m: float
+
+    def __init__(
+        self,
+        fig: Figure,
+        ax: Axes,
+        demo: ExploreFollowDemo,
+        *,
+        pick_radius_m: float = 0.45,
+    ) -> None:
+        self._fig = fig
+        self._ax = ax
+        self._demo = demo
+        self._pick_radius_m = pick_radius_m
+        self._dragging = False
+        fig.canvas.mpl_connect("button_press_event", self._on_press)
+        fig.canvas.mpl_connect("motion_notify_event", self._on_motion)
+        fig.canvas.mpl_connect("button_release_event", self._on_release)
+
+    def _event_xy_m(self, event: object) -> tuple[float, float] | None:
+        xdata = getattr(event, "xdata", None)
+        ydata = getattr(event, "ydata", None)
+        if xdata is not None and ydata is not None:
+            return (float(xdata), float(ydata))
+        xe = getattr(event, "x", None)
+        ye = getattr(event, "y", None)
+        if xe is None or ye is None:
+            return None
+        inv = self._ax.transData.inverted()
+        xd, yd = inv.transform((float(xe), float(ye)))
+        return (float(xd), float(yd))
+
+    def _on_press(self, event: object) -> None:
+        if getattr(event, "inaxes", None) is not self._ax:
+            return
+        if getattr(event, "button", None) != 1:
+            return
+        xy = self._event_xy_m(event)
+        if xy is None:
+            return
+        tx, ty = self._demo.state.target_xy_m
+        if math.hypot(xy[0] - tx, xy[1] - ty) > self._pick_radius_m:
+            return
+        self._dragging = True
+
+    def _on_motion(self, event: object) -> None:
+        if not self._dragging:
+            return
+        xy = self._event_xy_m(event)
+        if xy is None:
+            return
+        cx, cy = self._demo.world.clamp_point_to_interior(xy[0], xy[1])
+        self._demo.state.set_target_xy(cx, cy)
+        canvas = self._fig.canvas
+        draw_idle = getattr(canvas, "draw_idle", None)
+        if callable(draw_idle) and not isinstance(canvas, FigureCanvasAgg):
+            draw_idle()
+
+    def _on_release(self, _event: object) -> None:
+        self._dragging = False
 
 
 def _scan_ray_segments(
@@ -74,7 +142,7 @@ def main() -> None:
     mgr = fig.canvas.manager
     if mgr is not None:
         try:
-            mgr.set_window_title("fleet-sim — комнаты, лидар, цель")
+            mgr.set_window_title("fleet-sim — комнаты, лидар, цель (ЛКМ: перетащить)")
         except AttributeError:
             pass
 
@@ -100,6 +168,18 @@ def main() -> None:
         label="Цель следования",
     )
 
+    route_line = Line2D(
+        [],
+        [],
+        color="#5e35b1",
+        linestyle=(0, (5, 3)),
+        linewidth=2.0,
+        alpha=0.88,
+        zorder=2,
+        label="Маршрут следования",
+    )
+    ax.add_line(route_line)
+
     pose0 = demo.state.robot_pose
     robot_art.set_pose(pose0.x_m, pose0.y_m, pose0.theta_rad)
 
@@ -123,7 +203,7 @@ def main() -> None:
     legend = ax.legend(loc="upper right")
     legend.get_frame().set_alpha(0.92)
 
-    def _frame_update(_idx: int) -> tuple[Artist, Artist, Artist, Artist]:
+    def _frame_update(_idx: int) -> tuple[Artist, Artist, Artist, Artist, Artist]:
         demo.step(log_print=None)
         scan = demo.latest_scan_after_step()
         p = demo.state.robot_pose
@@ -139,6 +219,12 @@ def main() -> None:
         tgt = demo.state.target_xy_m
         target_scatter.set_offsets([[tgt[0], tgt[1]]])
 
+        route_pts = demo.follow_route_polyline_m
+        if len(route_pts) >= 2:
+            route_line.set_data([p[0] for p in route_pts], [p[1] for p in route_pts])
+        else:
+            route_line.set_data([], [])
+
         title.set_text(
             (
                 f"шаг={demo.step_index:<5}  режим={demo.phase:<10}  "
@@ -146,7 +232,7 @@ def main() -> None:
             ),
         )
 
-        return lidar_lc, robot_art.patch, target_scatter, title
+        return lidar_lc, robot_art.patch, route_line, target_scatter, title
 
     setattr(
         fig,
@@ -160,6 +246,7 @@ def main() -> None:
             repeat=False,
         ),
     )
+    setattr(fig, "_fleet_sim_target_drag", _FollowTargetDragHandler(fig, ax, demo))
     plt.tight_layout()
     plt.show()
 

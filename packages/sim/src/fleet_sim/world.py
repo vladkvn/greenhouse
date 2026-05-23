@@ -44,6 +44,38 @@ class PolygonWorld:
                 return room
         raise KeyError(label)
 
+    def clamp_point_to_interior(self, x: float, y: float, *, margin_m: float = 0.02) -> tuple[float, float]:
+        """Clamp (x,y) into the bounding box of all rooms shrinked by margin.
+
+        For the default three-in-a-row layout the union fills that box, so the
+        clamped point remains in free space. Degenerate layouts fall back to
+        room centroid midpoints."""
+
+        xmin = min(room.xmin for room in self.rooms)
+        xmax = max(room.xmax for room in self.rooms)
+        ymin = min(room.ymin for room in self.rooms)
+        ymax = max(room.ymax for room in self.rooms)
+        xm = xmin + margin_m
+        xh = xmax - margin_m
+        ym = ymin + margin_m
+        yh = ymax - margin_m
+        if xm > xh:
+            xm = xh = (xmin + xmax) / 2.0
+        if ym > yh:
+            ym = yh = (ymin + ymax) / 2.0
+        xc = min(max(float(x), xm), xh)
+        yc = min(max(float(y), ym), yh)
+        if self.contains_point(xc, yc):
+            return (xc, yc)
+        cxs: list[float] = []
+        cys: list[float] = []
+        for room in self.rooms:
+            cx = (room.xmin + room.xmax) / 2.0
+            cy = (room.ymin + room.ymax) / 2.0
+            cxs.append(cx)
+            cys.append(cy)
+        return (sum(cxs) / len(cxs), sum(cys) / len(cys))
+
 
 def _vertical_door_pair(
     x_wall: float,

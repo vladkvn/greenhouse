@@ -317,7 +317,7 @@ sequenceDiagram
 
 ## Mocks и симуляция (`packages/sim/`)
 
-Исполняемый пакет **`fleet-sim`** (см. [`packages/sim/README.md`](../packages/sim/README.md)): топология из трёх связанных комнат, лидара через рейкаст стен, правдивой локализации (`SimTruthLocalizer`), движка точки в плоскости, геометрического «детектора» цели (`SimPersonDetector`) и демо `fleet-sim-demo` с фазами exploration / follow без ROS. Для наглядности: **`fleet-sim-viz`** — окно matplotlib со стенами, лучами лидара, роботом и целью.
+Исполняемый пакет **`fleet-sim`** (см. [`packages/sim/README.md`](../packages/sim/README.md)): топология из трёх связанных комнат, лидара через рейкаст тех же **`PolygonWorld.walls`**, что задают узкие дверные проёмы; правдивая локализация (`SimTruthLocalizer`); интегратор с проверкой **дискового footprint** против этих же стен при шаге (`SimState.robot_inscribed_radius_m`, [`footprint`](../packages/sim/src/fleet_sim/footprint.py)); «детектор» цели (`SimPersonDetector`); демо `fleet-sim-demo` exploration / follow без ROS. В follow — **A* по сетке** при том же радиусе отпечатка и сегментных **`walls`** как препятствий, упрощение полилинии по проверке хорд; в **`fleet-sim-viz`** траектория — фиолетовая ломаная.
 
 Имена реализаций (можно подставлять вместо железа и ROS):
 
@@ -334,7 +334,7 @@ sequenceDiagram
 ## Заметки по indoor и RPi
 
 - **SLAM:** ориентация на 2D лидар и `slam_toolbox` или аналог в ROS 2.
-- **Nav2:** планирование и контроль для indoor.
+- **Nav2:** планирование и контроль для indoor (на роботе: polygon footprint и costmap inflation/clearing; в `fleet-sim` — disk против тех же **`PolygonWorld.walls`**, что лидарайкаст, см. README sim).
 - **Follow:** детекция + re-ID; не смешивать с классической `NavigateToPose` без явного режима оркестратора.
 - **Вычисления:** на RPi re-ID возможен только с лёгкими моделями; интерфейс `PersonDetector` позволит заменить backend детекции (например, на Jetson) без смены оркестратора.
 
