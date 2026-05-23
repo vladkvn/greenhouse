@@ -60,6 +60,6 @@
 | `packages/contracts` | Protocol + Pydantic + константы MQTT/API |
 | `packages/robot` | ROS 2 workspace, onboard-модули |
 | `packages/backend` | FastAPI + интеграция с MQTT/БД (по мере реализации) |
-| `packages/sim` | Mocks и будущая симуляция (Gazebo и т.д.) |
+| `packages/sim` | **`fleet-sim`**: Python-симуляция комнат и mocks контрактов; при необходимости Gazebo позже |
 | `docs/ARCHITECTURE.md` | Общая схема, диаграммы, roadmap |
 | `infra/` | Docker Compose, брокер и т.д. (по мере появления) |

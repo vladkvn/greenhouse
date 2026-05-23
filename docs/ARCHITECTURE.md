@@ -317,14 +317,19 @@ sequenceDiagram
 
 ## Mocks и симуляция (`packages/sim/`)
 
-| Mock | Интерфейс | Зачем |
-|------|-----------|------|
-| `MockLidarSource` | `LidarSource` | Тесты без лидара |
-| `MockCameraSource` | `CameraSource` | Тест пайплайна восприятия |
-| `MockMotionController` | `MotionController` | Лог команд вместо моторов |
-| `MockLocalizer` | `Localizer` | Фиксированная поза |
+Исполняемый пакет **`fleet-sim`** (см. [`packages/sim/README.md`](../packages/sim/README.md)): топология из трёх связанных комнат, лидара через рейкаст стен, правдивой локализации (`SimTruthLocalizer`), движка точки в плоскости, геометрического «детектора» цели (`SimPersonDetector`) и демо `fleet-sim-demo` с фазами exploration / follow без ROS.
 
-Далее: Gazebo + мост к тем же контрактам.
+Имена реализаций (можно подставлять вместо железа и ROS):
+
+| Реализация | Интерфейс | Назначение |
+|------------|-----------|------------|
+| `SimLidarSource` | `LidarSource` | Скан по аналитическим стенам комнат |
+| `SimCameraSource` | `CameraSource` | Синтетический кадр-заглушка под детектор |
+| `SimMotionController` | `MotionController` | Интеграция команд скорости в сим-состояние |
+| `SimTruthLocalizer` | `Localizer` | Поза робота как у симулятора (без SLAM) |
+| `SimPersonDetector` | `PersonDetector` | Видимость цели в упрощённом FOV |
+
+Далее: Gazebo и мост к тем же контрактам; unit-тесты рейкаста.
 
 ## Заметки по indoor и RPi
 

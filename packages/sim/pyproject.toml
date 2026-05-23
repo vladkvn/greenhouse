@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fleet-sim"
+version = "0.1.0"
+description = "Lightweight indoor multi-room Python simulation with fleet_contracts mocks"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+[project.scripts]
+fleet-sim-demo = "fleet_sim.demo:main"
+
+[project.optional-dependencies]
+dev = ["mypy>=1.8", "ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+fleet_sim = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["fleet_sim"]
+mypy_path = "src"
