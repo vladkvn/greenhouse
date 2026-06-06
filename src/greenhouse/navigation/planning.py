@@ -45,7 +45,13 @@ class GlobalPlanner(Protocol):
     """
 
     def plan(
-        self, *, grid: OccupancyGrid, start: Pose2D, goal: Pose2D, robot_radius_m: float
+        self,
+        *,
+        grid: OccupancyGrid,
+        start: Pose2D,
+        goal: Pose2D,
+        robot_radius_m: float,
+        best_effort: bool = False,
     ) -> PlanResult: ...
 
 
@@ -200,9 +206,9 @@ class AStarPlanner:
 class PurePursuitLocalPlanner:
     """Реализует `LocalPlanner`: ведёт робота вдоль пути (carrot / pure pursuit).
 
-    В Инкременте 3 объезда нет — `scan` пока не используется (это слой Инкремента 4):
-    планировщик доворачивает на ближайший непройденный путевой узел и едет к нему,
-    притормаживая у цели.
+    Чистый следователь без объезда (`scan` не используется): доворачивает на ближайший
+    непройденный путевой узел и едет к нему, притормаживая у цели. Реактивный объезд
+    препятствий — в `ReactiveLocalPlanner`.
     """
 
     def __init__(
@@ -229,22 +235,123 @@ class PurePursuitLocalPlanner:
     def compute_command(self, *, pose: Pose2D, scan: LidarScan) -> Twist2D:
         if not self._waypoints:
             return Twist2D.stop()
-        last = len(self._waypoints) - 1
-        while self._idx < last and _dist(pose, self._waypoints[self._idx]) < self._wp_tol:
-            self._idx += 1
-
+        self._idx = _advance(self._waypoints, self._idx, pose, self._wp_tol)
         target = self._waypoints[self._idx]
         err = _wrap(math.atan2(target.y_m - pose.y_m, target.x_m - pose.x_m) - pose.theta_rad)
         w = _clamp(2.0 * err, -self._w_max, self._w_max)
         if abs(err) > self._turn:
             return Twist2D(linear_x_m_s=0.0, angular_z_rad_s=w)  # сначала довернуть
-        v = min(self._v_max * math.cos(err), 1.5 * _dist(pose, self._waypoints[last]))
+        v = min(self._v_max * math.cos(err), 1.5 * _dist(pose, self._waypoints[-1]))
         return Twist2D(linear_x_m_s=max(0.0, v), angular_z_rad_s=w)
 
     def is_goal_reached(self, *, pose: Pose2D) -> bool:
         if not self._waypoints:
             return True
         return _dist(pose, self._waypoints[-1]) <= self._goal_tol
+
+
+class ReactiveLocalPlanner:
+    """Реализует `LocalPlanner` с реактивным объездом по свежему скану лидара.
+
+    Реагирует только на препятствие в переднем конусе по курсу (боковые стены не мешают).
+    Пока спереди просторно — обычное следование к путевому узлу. Если впереди появляется
+    помеха, которой нет на карте, робот сворачивает в более свободную сторону и продолжает
+    движение дугой, огибая её, а скорость гасит по мере приближения. Пройдя помеху, передний
+    конус освобождается и робот сам возвращается к цели. Метод без памяти и не «орбитит».
+    """
+
+    def __init__(
+        self,
+        *,
+        robot_radius_m: float = 0.25,
+        max_linear_m_s: float = 0.6,
+        max_angular_rad_s: float = 1.5,
+        goal_tol_m: float = 0.2,
+        waypoint_tol_m: float = 0.3,
+        turn_in_place_rad: float = 0.6,
+        safety_margin_m: float = 0.3,
+        clear_pref_m: float = 1.2,
+    ) -> None:
+        self._v_max = max_linear_m_s
+        self._w_max = max_angular_rad_s
+        self._goal_tol = goal_tol_m
+        self._wp_tol = waypoint_tol_m
+        self._turn = turn_in_place_rad
+        self._stop = robot_radius_m + 0.05                # жёсткий стоп-зазор
+        self._cone = math.radians(30.0)                   # передний конус реакции
+        self._clear_pref = clear_pref_m                   # с какого расстояния реагируем
+        self._waypoints: tuple[Pose2D, ...] = ()
+        self._idx = 0
+
+    def set_path(self, *, path: Path) -> None:
+        self._waypoints = path.waypoints
+        self._idx = 0
+
+    def compute_command(self, *, pose: Pose2D, scan: LidarScan) -> Twist2D:
+        if not self._waypoints:
+            return Twist2D.stop()
+        self._idx = _advance(self._waypoints, self._idx, pose, self._wp_tol)
+        target = self._waypoints[self._idx]
+        goal_err = _wrap(math.atan2(target.y_m - pose.y_m, target.x_m - pose.x_m) - pose.theta_rad)
+        dist_goal = _dist(pose, self._waypoints[-1])
+        forward = _sector_clearance(scan, 0.0, self._cone)
+
+        if forward >= self._clear_pref:
+            # Спереди просторно — обычное следование к цели.
+            w = _clamp(2.0 * goal_err, -self._w_max, self._w_max)
+            if abs(goal_err) > self._turn:
+                return Twist2D(linear_x_m_s=0.0, angular_z_rad_s=w)  # сначала довернуть
+            v = min(self._v_max * math.cos(goal_err), 1.5 * dist_goal)
+            return Twist2D(linear_x_m_s=max(0.0, v), angular_z_rad_s=w)
+
+        # Препятствие в переднем конусе — свернуть в более свободную сторону и обходить дугой.
+        left = _sector_clearance(scan, math.radians(45.0), self._cone)
+        right = _sector_clearance(scan, math.radians(-45.0), self._cone)
+        side = 1 if left >= right else -1
+        w = _clamp(2.0 * side * math.radians(55.0), -self._w_max, self._w_max)
+        span = self._clear_pref - self._stop
+        v = self._v_max * (_clamp((forward - self._stop) / span, 0.0, 1.0) if span > 0 else 1.0)
+        return Twist2D(linear_x_m_s=max(0.0, 0.6 * v), angular_z_rad_s=w)
+
+    def is_goal_reached(self, *, pose: Pose2D) -> bool:
+        if not self._waypoints:
+            return True
+        return _dist(pose, self._waypoints[-1]) <= self._goal_tol
+
+
+def _advance(waypoints: tuple[Pose2D, ...], idx: int, pose: Pose2D, wp_tol: float) -> int:
+    """Сдвинуть индекс через уже пройденные промежуточные узлы (последний не пропускаем)."""
+    last = len(waypoints) - 1
+    while idx < last and _dist(pose, waypoints[idx]) < wp_tol:
+        idx += 1
+    return idx
+
+
+def _nearest(scan: LidarScan) -> tuple[float, float]:
+    """Дистанция и относительный угол до ближайшего возврата по всему скану."""
+    best_r = scan.range_max_m
+    best_a = 0.0
+    for i, r in enumerate(scan.ranges_m):
+        reach = r if math.isfinite(r) else scan.range_max_m
+        if reach < best_r:
+            best_r = reach
+            best_a = scan.angle_min_rad + i * scan.angle_increment_rad
+    return best_r, _wrap(best_a)
+
+
+def _sector_clearance(scan: LidarScan, phi_rad: float, half_rad: float) -> float:
+    """Минимальная дистанция до препятствия в секторе ±half вокруг направления phi.
+
+    Углы скана — относительно курса робота (как и phi). Возвраты inf/NaN считаем как
+    `range_max` (свободно до предела дальности).
+    """
+    best = scan.range_max_m
+    for i, r in enumerate(scan.ranges_m):
+        angle = scan.angle_min_rad + i * scan.angle_increment_rad
+        if abs(_wrap(angle - phi_rad)) <= half_rad:
+            reach = r if math.isfinite(r) else scan.range_max_m
+            best = min(best, reach)
+    return best
 
 
 def _inflate(grid: OccupancyGrid, robot_radius_m: float) -> set[tuple[int, int]]:

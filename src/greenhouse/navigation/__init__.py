@@ -19,6 +19,7 @@ from greenhouse.navigation.planning import (
     PlanOk,
     PlanResult,
     PurePursuitLocalPlanner,
+    ReactiveLocalPlanner,
 )
 
 __all__ = [
@@ -41,4 +42,5 @@ __all__ = [
     "PlanOk",
     "PlanResult",
     "PurePursuitLocalPlanner",
+    "ReactiveLocalPlanner",
 ]
