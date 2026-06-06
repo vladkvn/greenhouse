@@ -99,21 +99,39 @@ class AStarPlanner:
         self._allow_unknown = allow_unknown
 
     def plan(
-        self, *, grid: OccupancyGrid, start: Pose2D, goal: Pose2D, robot_radius_m: float
+        self,
+        *,
+        grid: OccupancyGrid,
+        start: Pose2D,
+        goal: Pose2D,
+        robot_radius_m: float,
+        best_effort: bool = False,
     ) -> PlanResult:
+        """Построить путь до `goal`.
+
+        При `best_effort=True`, если сама цель недостижима (занята/в инфляции/в изоляции),
+        вернуть путь до ближайшей достижимой ячейки рядом с ней, а не `Failure` —
+        робот подъедет максимально близко.
+        """
         meta = grid.meta
         blocked = _inflate(grid, robot_radius_m)
         start_cell = meta.world_to_cell(start.point)
         goal_cell = meta.world_to_cell(goal.point)
         if not self._free(grid, blocked, start_cell):
             return Failure(code=FailureCode.PLANNER_FAILED, message="старт в занятой ячейке")
-        if not self._free(grid, blocked, goal_cell):
+        if not best_effort and not self._free(grid, blocked, goal_cell):
             return Failure(code=FailureCode.PLANNER_FAILED, message="цель недостижима (занята)")
 
-        cells = self._astar(grid, blocked, start_cell, goal_cell)
+        cells, reached = self._astar(grid, blocked, start_cell, goal_cell, best_effort=best_effort)
         if cells is None:
             return Failure(code=FailureCode.PLANNER_FAILED, message="путь не найден")
-        return PlanOk(path=Path(waypoints=_to_waypoints(meta, cells, start, goal)))
+
+        if reached:
+            target = goal
+        else:  # цель недостижима — берём центр ближайшей достижимой ячейки как цель
+            last = meta.cell_to_world(cells[-1][0], cells[-1][1])
+            target = Pose2D(x_m=last.x_m, y_m=last.y_m, theta_rad=goal.theta_rad)
+        return PlanOk(path=Path(waypoints=_to_waypoints(meta, cells, start, target)))
 
     def _free(self, grid: OccupancyGrid, blocked: set[tuple[int, int]], cell: tuple[int, int]) -> bool:
         row, col = cell
@@ -131,7 +149,14 @@ class AStarPlanner:
         blocked: set[tuple[int, int]],
         start: tuple[int, int],
         goal: tuple[int, int],
-    ) -> list[tuple[int, int]] | None:
+        *,
+        best_effort: bool,
+    ) -> tuple[list[tuple[int, int]] | None, bool]:
+        """Вернуть `(путь_в_ячейках, достигнута_ли_сама_цель)`.
+
+        Если цель недостижима и `best_effort`, путь ведёт к раскрытой ячейке с минимальным
+        октайл-расстоянием до цели; иначе при недостижимости путь = `None`.
+        """
         counter = count()
         open_heap: list[tuple[float, int, tuple[int, int]]] = [
             (_octile(start, goal), next(counter), start)
@@ -139,14 +164,18 @@ class AStarPlanner:
         g_score: dict[tuple[int, int], float] = {start: 0.0}
         came_from: dict[tuple[int, int], tuple[int, int]] = {}
         closed: set[tuple[int, int]] = set()
+        best, best_h = start, _octile(start, goal)
 
         while open_heap:
             _, _, cur = heapq.heappop(open_heap)
             if cur == goal:
-                return _reconstruct(came_from, cur)
+                return _reconstruct(came_from, cur), True
             if cur in closed:
                 continue
             closed.add(cur)
+            h = _octile(cur, goal)
+            if h < best_h:
+                best, best_h = cur, h
             r, c = cur
             for dr, dc, step in _NEIGHBORS:
                 nb = (r + dr, c + dc)
@@ -162,7 +191,10 @@ class AStarPlanner:
                     g_score[nb] = tentative
                     came_from[nb] = cur
                     heapq.heappush(open_heap, (tentative + _octile(nb, goal), next(counter), nb))
-        return None
+
+        if best_effort:
+            return _reconstruct(came_from, best), False
+        return None, False
 
 
 class PurePursuitLocalPlanner:

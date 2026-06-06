@@ -13,6 +13,9 @@ dev = [
     "mypy>=1.10",
     "pytest>=8.0",
 ]
+viz = [
+    "pygame-ce>=2.5",
+]
 
 [build-system]
 requires = ["hatchling"]

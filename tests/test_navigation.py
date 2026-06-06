@@ -95,6 +95,24 @@ def test_inflation_blocks_gap_too_narrow_for_robot() -> None:
     assert isinstance(fat, Failure)       # широкому инфляция перекрывает зазор
 
 
+def test_best_effort_approaches_unreachable_goal() -> None:
+    # Цель в занятой ячейке: best_effort ведёт к ближайшей свободной рядом, а не Failure.
+    grid = _free_grid(20, 12)
+    _set_occupied(grid, 9.0, 5.0)
+    planner = AStarPlanner()
+
+    strict = planner.plan(grid=grid, start=_pose(1.0, 1.0), goal=_pose(9.0, 5.0), robot_radius_m=0.0)
+    assert isinstance(strict, Failure)  # по умолчанию — отказ
+
+    soft = planner.plan(
+        grid=grid, start=_pose(1.0, 1.0), goal=_pose(9.0, 5.0), robot_radius_m=0.0, best_effort=True
+    )
+    assert isinstance(soft, PlanOk)
+    stop = soft.path.waypoints[-1]
+    assert _at(grid, stop) is not CellState.OCCUPIED          # сам не встал в занятую ячейку
+    assert stop.point.distance_to(Point2D(x_m=9.0, y_m=5.0)) < 1.0  # но рядом с целью
+
+
 def test_navigate_reaches_goal_on_built_map() -> None:
     # Критерий инкремента: робот доезжает из A в B по построенной карте.
     world = empty_room(10.0, 6.0)
