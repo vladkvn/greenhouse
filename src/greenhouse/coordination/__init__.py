@@ -9,6 +9,13 @@ from greenhouse.coordination.interfaces import (
     SegmentKind,
     TrafficCoordinator,
 )
+from greenhouse.coordination.yielding import (
+    RobotIntent,
+    backoff_ticks,
+    is_head_on,
+    should_i_yield,
+    who_yields,
+)
 
 __all__ = [
     "InMemoryTrafficCoordinator",
@@ -18,4 +25,9 @@ __all__ = [
     "ReservationToken",
     "SegmentKind",
     "TrafficCoordinator",
+    "RobotIntent",
+    "backoff_ticks",
+    "is_head_on",
+    "should_i_yield",
+    "who_yields",
 ]

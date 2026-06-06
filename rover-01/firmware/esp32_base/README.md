@@ -1,64 +1,97 @@
-# esp32_base — прошивка моторного слоя (micro-ROS)
+# esp32_base — прошивка моторного слоя
 
-ESP32 как ROS2-нода `rover_base`. Принимает `/cmd_vel`, крутит L298N (skid-steer),
-держит watchdog и публикует `/rover/heartbeat`. Транспорт — Serial (USB).
+ESP32 как моторный слой робота. **Две сборки**, общая моторная логика
+(`src/motor_control.cpp`) — поэтому веб-команды действуют так же, как ROS-команды,
+включая watchdog.
 
-## Что делает
+| Сборка     | Что делает                                   | Когда использовать                         |
+|------------|----------------------------------------------|--------------------------------------------|
+| `microros` | ROS2-нода `rover_base`, `/cmd_vel` по USB    | Рабочая: с Jetson и micro-ROS агентом      |
+| `webtest`  | Wi-Fi AP + веб-пульт в браузере              | Тест с ноутбука без Jetson (этапы 0–2)      |
 
-- Подписка `/cmd_vel` (`geometry_msgs/Twist`) → скорости бортов → ШИМ на L298N.
+## Общее поведение (обе сборки)
+
+- Команда задаётся как `linear.x` (м/с) и `angular.z` (рад/с) → skid-steer → ШИМ на L298N.
 - **Watchdog:** нет команды дольше `CMD_TIMEOUT_MS` (300 мс) → моторы в стоп.
 - **Slew-rate** (плавный пуск) и **мёртвая зона ШИМ** — бережёт L298N и питание.
-- **Heartbeat** `/rover/heartbeat` (`std_msgs/Int32`, растёт) — Jetson видит, что ESP32 жив.
-- **Автопереподключение** к агенту; при потере агента — немедленный стоп.
 
-## Разводка (текущая конфигурация)
+## Разводка и настройка
 
 1× L298N, борт = канал: левые 2 мотора → канал A, правые 2 → канал B.
-Пины и параметры — в `include/config.h`. Перед прошивкой проверь там:
-GPIO под свою плату, `WHEEL_BASE_M` (измерь колею), `PWM_DEADZONE` (подбери на этапе 0).
+Всё подстраиваемое — в `include/config.h`. Перед прошивкой проверь:
+GPIO под свою плату, `WHEEL_BASE_M` (измерь колею), `PWM_DEADZONE` (подбери на этапе 0),
+а для веб-теста — `WIFI_AP_SSID` / `WIFI_AP_PASSWORD`.
 
-## Сборка и прошивка (PlatformIO)
+> ⚠️ Любой первый запуск моторов — **колёса на подставке, в воздухе.**
+
+---
+
+## Сборка `webtest` — пульт в браузере (начни отсюда)
+
+Не требует Jetson, ROS и micro-ROS агента — только ESP32 и ноутбук.
 
 ```bash
 # из папки firmware/esp32_base
-pio run                 # собрать
-pio run -t upload       # прошить (ESP32 в USB)
-pio device monitor      # лог (115200)
+pio run -e webtest -t upload
+pio device monitor          # покажет SSID и адрес (обычно http://192.168.4.1)
 ```
-Первая сборка скачает micro_ros_platformio и соберёт библиотеку micro-ROS — это долго, это нормально.
 
-## Запуск агента на Jetson
+Дальше:
 
-ESP32 не заработает «сам по себе» — на стороне Jetson нужен micro-ROS агент
-(установка — см. `../../docs/03-drivers-setup.md`):
+1. На ноутбуке подключись к Wi-Fi сети **`rover-01`** (пароль из `config.h`, по умолч. `rover12345`).
+2. Открой в браузере **http://192.168.4.1**.
+3. Двигай слайдеры скорости/поворота, **удерживай** стрелку — робот едет, отпустил — стоп.
+4. Проверь watchdog: на ходу просто закрой вкладку — моторы встанут через ~300 мс.
 
+Браузер шлёт команды потоком (~10 раз/с), как ROS, поэтому отпускание кнопки или
+обрыв Wi-Fi = автостоп. Это та же `motorsSetTarget()`, что и в ROS-сборке.
+
+---
+
+## Сборка `microros` — рабочая (с Jetson)
+
+```bash
+pio run -e microros -t upload
+pio device monitor
+```
+Первая сборка скачает и соберёт библиотеку micro-ROS — это долго, это нормально.
+
+На Jetson нужен micro-ROS агент (установка — `../../docs/03-drivers-setup.md`):
 ```bash
 ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/ttyUSB0 -b 115200
 ```
-Порт (`/dev/ttyUSB0`) и baudrate (`115200`) должны совпадать с `platformio.ini`.
+Порт и baudrate должны совпадать с `platformio.ini`.
 
-## Проверка (этап 1 плана тестирования)
-
-**Колёса на подставке, в воздухе.**
-
+Проверка (этап 1, колёса в воздухе):
 ```bash
-ros2 topic list                      # должны быть /cmd_vel и /rover/heartbeat
+ros2 topic list                      # /cmd_vel и /rover/heartbeat
 ros2 topic echo /rover/heartbeat     # счётчик растёт -> нода жива
-
-# поехали вперёд:
 ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.2}, angular: {z: 0.0}}"
-# поворот на месте:
-ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0}, angular: {z: 1.0}}"
 ```
+Останови публикацию (Ctrl-C) → колёса встают через ~300 мс.
 
-Останови публикацию (Ctrl-C) → колёса должны встать через ~300 мс (watchdog).
+---
+
+## Структура проекта
+
+```
+firmware/esp32_base/
+├── platformio.ini          две сборки (microros / webtest)
+├── include/
+│   ├── config.h            пины, кинематика, watchdog, Wi-Fi
+│   └── motor_control.h
+├── src/
+│   ├── motor_control.cpp   ОБЩАЯ моторная логика (skid-steer, watchdog, slew)
+│   ├── microros/main.cpp   ROS2-нода
+│   └── webtest/main_webtest.cpp   Wi-Fi AP + веб-пульт
+```
 
 ## Известные ограничения
 
 - **Open-loop:** без энкодеров ШИМ ≠ реальная скорость; `MAX_WHEEL_SPEED` — грубая оценка,
-  «прямо» будет приблизительным. Лечится энкодерами + замкнутым контуром (см. план).
-- `board_microros_distro` в `platformio.ini` при необходимости задай под дистрибутив Jetson.
+  «прямо» будет приблизительным. Лечится энкодерами + замкнутым контуром.
 - Не повышай `espressif32` до версии с Arduino-core 3.x без правки PWM (изменён LEDC API).
+- Код собран и проверен логически, но **на железе не прогонялся** — компиляция и тест на твоей стороне.
 
 ## TODO (следующие итерации)
 

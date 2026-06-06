@@ -11,3 +11,4 @@ class RobotMode(StrEnum):
     NAVIGATING = "navigating"
     FOLLOWING = "following"
     CHARGING = "charging"
+    YIELDING = "yielding"

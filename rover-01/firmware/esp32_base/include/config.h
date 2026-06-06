@@ -44,3 +44,15 @@
 
 // Период публикации heartbeat (в тиках управляющего цикла). 25 * 20мс = 500мс.
 #define HEARTBEAT_EVERY_TICKS 25
+
+// ───────────────────────── Веб-тест (сборка esp32_webtest) ─────────────────────────
+// Используется ТОЛЬКО в сборке webtest (управление из браузера, без Jetson/ROS).
+// Режим Access Point: ESP32 поднимает свою Wi-Fi-сеть.
+#define WIFI_AP_SSID     "rover-01"      // имя сети ESP32
+#define WIFI_AP_PASSWORD "rover12345"    // пароль (>= 8 символов!). Смени при желании.
+#define WIFI_AP_CHANNEL  1
+#define WEB_PORT         80
+
+// Пределы скоростей для слайдеров веб-пульта (верхняя граница ползунков).
+#define WEB_MAX_LINEAR   0.5f   // м/с
+#define WEB_MAX_ANGULAR  2.0f   // рад/с
