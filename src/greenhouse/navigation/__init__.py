@@ -1,5 +1,6 @@
 """Слой навигации: карта, локализация, планирование, закрытые зоны."""
 
+from greenhouse.navigation.following import PersonFollower
 from greenhouse.navigation.keepout import KeepoutRegistry, Zone, ZoneKind
 from greenhouse.navigation.localization import Localizer, PoseEstimate, ScanMatchLocalizer
 from greenhouse.navigation.mapping import (
@@ -23,6 +24,7 @@ from greenhouse.navigation.planning import (
 )
 
 __all__ = [
+    "PersonFollower",
     "KeepoutRegistry",
     "Zone",
     "ZoneKind",

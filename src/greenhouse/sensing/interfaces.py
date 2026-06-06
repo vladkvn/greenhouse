@@ -47,8 +47,22 @@ class ImuSample(BaseModel, frozen=True):
     stamp_s: float
 
 
+class TargetObservation(BaseModel, frozen=True):
+    """Наблюдение сопровождаемой цели (человека) относительно робота."""
+
+    range_m: float = Field(gt=0.0, description="Дистанция до цели, м.")
+    bearing_rad: float = Field(description="Курсовой угол на цель (0 = прямо по курсу).")
+    stamp_s: float
+
+
 class LidarSource(Protocol):
     def read_scan(self) -> LidarScan: ...
+
+
+class TargetDetector(Protocol):
+    """Детектор/трекер цели: текущее наблюдение или None, если цель не видна."""
+
+    def detect(self) -> TargetObservation | None: ...
 
 
 class CameraSource(Protocol):

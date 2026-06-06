@@ -13,6 +13,7 @@ from greenhouse.adapters.sim.loop import SimRobot, build_sim_robot, run
 from greenhouse.adapters.sim.motion import SimMotion
 from greenhouse.adapters.sim.navigation import SimGoalNavigator
 from greenhouse.adapters.sim.odometry import SimOdometry
+from greenhouse.adapters.sim.person import SimPerson, SimPersonDetector
 from greenhouse.adapters.sim.state import SimState
 from greenhouse.adapters.sim.world import PolygonWorld, Segment
 from greenhouse.adapters.sim.worlds import (
@@ -31,6 +32,8 @@ __all__ = [
     "run",
     "SimMotion",
     "SimGoalNavigator",
+    "SimPerson",
+    "SimPersonDetector",
     "SimOdometry",
     "SimState",
     "PolygonWorld",

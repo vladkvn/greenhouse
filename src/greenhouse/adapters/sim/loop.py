@@ -18,10 +18,12 @@ from greenhouse.adapters.sim.odometry import SimOdometry
 from greenhouse.adapters.sim.state import SimState
 from greenhouse.adapters.sim.world import PolygonWorld
 from greenhouse.domain.identifiers import RobotId
+from greenhouse.navigation.following import PersonFollower
 from greenhouse.navigation.mapping import MapBuilder
 from greenhouse.navigation.planning import LocalPlanner
 from greenhouse.orchestration.interfaces import RobotStatus
 from greenhouse.orchestration.modes import RobotMode
+from greenhouse.sensing.interfaces import TargetDetector
 
 
 @dataclass
@@ -39,6 +41,8 @@ class SimRobot:
     mode: RobotMode = RobotMode.IDLE
     map_builder: MapBuilder | None = None
     local_planner: LocalPlanner | None = None
+    person_detector: TargetDetector | None = None
+    follower: PersonFollower | None = None
 
     def tick(self, *, dt_s: float) -> RobotStatus:
         scan = self.lidar.read_scan()
@@ -60,6 +64,12 @@ class SimRobot:
                 self.motion.command(
                     twist=self.local_planner.compute_command(pose=estimate.pose, scan=scan)
                 )
+        elif (
+            self.mode is RobotMode.FOLLOWING
+            and self.follower is not None
+            and self.person_detector is not None
+        ):
+            self.motion.command(twist=self.follower.update(observation=self.person_detector.detect()))
 
         self.engine.step(dt_s=dt_s)
 
