@@ -7,7 +7,12 @@ from greenhouse.navigation.keepout import (
     Zone,
     ZoneKind,
 )
-from greenhouse.navigation.localization import Localizer, PoseEstimate, ScanMatchLocalizer
+from greenhouse.navigation.localization import (
+    ImuFusedLocalizer,
+    Localizer,
+    PoseEstimate,
+    ScanMatchLocalizer,
+)
 from greenhouse.navigation.mapping import (
     ConfidenceGatedMapper,
     DynamicObstacleLayer,
@@ -40,6 +45,7 @@ __all__ = [
     "KeepoutRegistry",
     "Zone",
     "ZoneKind",
+    "ImuFusedLocalizer",
     "Localizer",
     "PoseEstimate",
     "ScanMatchLocalizer",

@@ -100,6 +100,7 @@ def build_sim_robot(
     map_builder: MapBuilder | None = None,
     dock: Point2D | None = None,
     battery_drain_per_s: float = 0.0005,
+    yaw_slip: float = 0.0,
 ) -> SimRobot:
     """Собрать робота со всеми sim-адаптерами в согласованном состоянии."""
     state = SimState(x_m=start_x_m, y_m=start_y_m, theta_rad=start_theta_rad)
@@ -113,7 +114,7 @@ def build_sim_robot(
             battery_drain_per_s=battery_drain_per_s,
         ),
         lidar=SimLidar(world=world, state=state, clock=clock),
-        odometry=SimOdometry(state=state, clock=clock),
+        odometry=SimOdometry(state=state, clock=clock, yaw_slip=yaw_slip),
         localizer=SimTruthLocalizer(state=state, clock=clock),
         motion=SimMotion(state=state),
         map_builder=map_builder,

@@ -9,6 +9,7 @@ from greenhouse.adapters.sim.charging import SimChargeController
 from greenhouse.adapters.sim.clock import SimClock
 from greenhouse.adapters.sim.engine import SimEngine
 from greenhouse.adapters.sim.exploration import SimExplorer
+from greenhouse.adapters.sim.imu import SimImu
 from greenhouse.adapters.sim.lidar import SimLidar
 from greenhouse.adapters.sim.localization import SimTruthLocalizer
 from greenhouse.adapters.sim.loop import SimRobot, build_sim_robot, run
@@ -29,6 +30,7 @@ __all__ = [
     "SimClock",
     "SimEngine",
     "SimExplorer",
+    "SimImu",
     "SimLidar",
     "SimTruthLocalizer",
     "SimRobot",
