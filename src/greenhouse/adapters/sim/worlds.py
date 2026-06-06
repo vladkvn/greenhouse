@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import math
+
 from greenhouse.adapters.sim.world import PolygonWorld, Segment
 from greenhouse.domain.geometry import Point2D
+from greenhouse.domain.grid import MapMeta
 
 
 def _rect(x0: float, y0: float, x1: float, y1: float) -> tuple[Segment, ...]:
@@ -42,4 +45,25 @@ def greenhouse_rows_world(
         walls=tuple(walls),
         bounds_min=Point2D(x_m=0.0, y_m=0.0),
         bounds_max=Point2D(x_m=row_length_m, y_m=height_m),
+    )
+
+
+def grid_meta_for_world(
+    world: PolygonWorld, *, resolution_m: float = 0.1, padding_m: float = 0.5
+) -> MapMeta:
+    """`MapMeta`, покрывающая габариты мира с запасом `padding_m` по краям.
+
+    Удобно для построения карты в симуляции: размер сетки и привязка координат
+    выводятся прямо из `bounds` мира, без ручного подбора.
+    """
+    width_m = world.bounds_max.x_m - world.bounds_min.x_m + 2.0 * padding_m
+    height_m = world.bounds_max.y_m - world.bounds_min.y_m + 2.0 * padding_m
+    return MapMeta(
+        resolution_m=resolution_m,
+        width_px=int(math.ceil(width_m / resolution_m)),
+        height_px=int(math.ceil(height_m / resolution_m)),
+        origin=Point2D(
+            x_m=world.bounds_min.x_m - padding_m,
+            y_m=world.bounds_min.y_m - padding_m,
+        ),
     )

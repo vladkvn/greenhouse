@@ -14,7 +14,11 @@ from greenhouse.adapters.sim.motion import SimMotion
 from greenhouse.adapters.sim.odometry import SimOdometry
 from greenhouse.adapters.sim.state import SimState
 from greenhouse.adapters.sim.world import PolygonWorld, Segment
-from greenhouse.adapters.sim.worlds import empty_room, greenhouse_rows_world
+from greenhouse.adapters.sim.worlds import (
+    empty_room,
+    greenhouse_rows_world,
+    grid_meta_for_world,
+)
 
 __all__ = [
     "SimClock",
@@ -31,4 +35,5 @@ __all__ = [
     "Segment",
     "empty_room",
     "greenhouse_rows_world",
+    "grid_meta_for_world",
 ]

@@ -41,8 +41,11 @@ class SimLidar:
             )
             for i in range(self._num_beams)
         )
+        # Углы скана — относительно курса робота (контракт лидара): луч 0 смотрит вперёд.
+        # Рейкаст идёт в мировых координатах (theta + i*incr), но наружу отдаём углы в
+        # системе сенсора, чтобы потребитель сам сложил их с позой (theta).
         return LidarScan(
-            angle_min_rad=s.theta_rad,
+            angle_min_rad=0.0,
             angle_increment_rad=increment,
             range_max_m=self._range_max,
             ranges_m=ranges,

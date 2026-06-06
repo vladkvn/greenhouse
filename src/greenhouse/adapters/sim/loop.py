@@ -18,6 +18,7 @@ from greenhouse.adapters.sim.odometry import SimOdometry
 from greenhouse.adapters.sim.state import SimState
 from greenhouse.adapters.sim.world import PolygonWorld
 from greenhouse.domain.identifiers import RobotId
+from greenhouse.navigation.mapping import MapBuilder
 from greenhouse.orchestration.interfaces import RobotStatus
 from greenhouse.orchestration.modes import RobotMode
 
@@ -35,15 +36,21 @@ class SimRobot:
     localizer: SimTruthLocalizer
     motion: SimMotion
     mode: RobotMode = RobotMode.IDLE
+    map_builder: MapBuilder | None = None
 
     def tick(self, *, dt_s: float) -> RobotStatus:
         scan = self.lidar.read_scan()
         odom = self.odometry.read_odometry()
         estimate = self.localizer.update(scan=scan, odometry=odom)
 
-        # Поведение по режиму. Инкремент 1: Idle = стоп.
+        # Поведение по режиму. Idle = стоп; Mapping = накапливать карту по сканам.
         if self.mode is RobotMode.IDLE:
             self.motion.stop()
+        elif self.mode is RobotMode.MAPPING and self.map_builder is not None:
+            p = estimate.pose
+            self.map_builder.ingest_scan(
+                scan=scan, pose_xytheta=(p.x_m, p.y_m, p.theta_rad)
+            )
 
         self.engine.step(dt_s=dt_s)
 
@@ -63,6 +70,7 @@ def build_sim_robot(
     start_x_m: float = 1.0,
     start_y_m: float = 1.0,
     start_theta_rad: float = 0.0,
+    map_builder: MapBuilder | None = None,
 ) -> SimRobot:
     """Собрать робота со всеми sim-адаптерами в согласованном состоянии."""
     state = SimState(x_m=start_x_m, y_m=start_y_m, theta_rad=start_theta_rad)
@@ -76,6 +84,7 @@ def build_sim_robot(
         odometry=SimOdometry(state=state, clock=clock),
         localizer=SimTruthLocalizer(state=state, clock=clock),
         motion=SimMotion(state=state),
+        map_builder=map_builder,
     )
 
 

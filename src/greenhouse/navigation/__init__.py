@@ -2,7 +2,12 @@
 
 from greenhouse.navigation.keepout import KeepoutRegistry, Zone, ZoneKind
 from greenhouse.navigation.localization import Localizer, PoseEstimate
-from greenhouse.navigation.mapping import MapBuilder, MapStore, StoredMap
+from greenhouse.navigation.mapping import (
+    EvidenceGridMapper,
+    MapBuilder,
+    MapStore,
+    StoredMap,
+)
 from greenhouse.navigation.planning import (
     GlobalPlanner,
     GoalNavigator,
@@ -20,6 +25,7 @@ __all__ = [
     "ZoneKind",
     "Localizer",
     "PoseEstimate",
+    "EvidenceGridMapper",
     "MapBuilder",
     "MapStore",
     "StoredMap",
