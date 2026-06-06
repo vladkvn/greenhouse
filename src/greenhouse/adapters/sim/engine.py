@@ -22,11 +22,17 @@ class SimEngine:
         state: SimState,
         clock: SimClock,
         battery_drain_per_s: float = 0.0005,
+        dock: Point2D | None = None,
+        charge_per_s: float = 0.05,
+        dock_radius_m: float = 0.3,
     ) -> None:
         self._world = world
         self._state = state
         self._clock = clock
         self._drain = battery_drain_per_s
+        self._dock = dock
+        self._charge = charge_per_s
+        self._dock_radius = dock_radius_m
 
     def step(self, *, dt_s: float) -> None:
         s = self._state
@@ -43,5 +49,9 @@ class SimEngine:
             s.x_m, s.y_m = new_x, new_y
         s.theta_rad = new_theta  # поворот на месте всегда допустим
 
-        s.battery_frac = max(0.0, s.battery_frac - self._drain * dt_s)
+        # На док-точке батарея заряжается, иначе разряжается по ходу работы.
+        if self._dock is not None and candidate.distance_to(self._dock) <= self._dock_radius:
+            s.battery_frac = min(1.0, s.battery_frac + self._charge * dt_s)
+        else:
+            s.battery_frac = max(0.0, s.battery_frac - self._drain * dt_s)
         self._clock.advance(dt_s=dt_s)

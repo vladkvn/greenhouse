@@ -17,6 +17,7 @@ from greenhouse.adapters.sim.motion import SimMotion
 from greenhouse.adapters.sim.odometry import SimOdometry
 from greenhouse.adapters.sim.state import SimState
 from greenhouse.adapters.sim.world import PolygonWorld
+from greenhouse.domain.geometry import Point2D
 from greenhouse.domain.identifiers import RobotId
 from greenhouse.navigation.following import PersonFollower
 from greenhouse.navigation.mapping import MapBuilder
@@ -90,6 +91,7 @@ def build_sim_robot(
     start_y_m: float = 1.0,
     start_theta_rad: float = 0.0,
     map_builder: MapBuilder | None = None,
+    dock: Point2D | None = None,
 ) -> SimRobot:
     """Собрать робота со всеми sim-адаптерами в согласованном состоянии."""
     state = SimState(x_m=start_x_m, y_m=start_y_m, theta_rad=start_theta_rad)
@@ -98,7 +100,7 @@ def build_sim_robot(
         robot_id=robot_id,
         state=state,
         clock=clock,
-        engine=SimEngine(world=world, state=state, clock=clock),
+        engine=SimEngine(world=world, state=state, clock=clock, dock=dock),
         lidar=SimLidar(world=world, state=state, clock=clock),
         odometry=SimOdometry(state=state, clock=clock),
         localizer=SimTruthLocalizer(state=state, clock=clock),
