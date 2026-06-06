@@ -303,22 +303,29 @@ class ReactiveLocalPlanner:
         target = self._waypoints[self._idx]
         goal_err = _wrap(math.atan2(target.y_m - pose.y_m, target.x_m - pose.x_m) - pose.theta_rad)
         dist_goal = _dist(pose, self._waypoints[-1])
-        forward = _sector_clearance(scan, 0.0, self._cone)
 
-        if forward >= self._clear_pref:
-            # Спереди просторно — обычное следование к цели.
+        # Если нужно крупно довернуть к цели (она сбоку/сзади) — доворачиваем на месте, не
+        # реагируя на стену по текущему курсу: путь к цели может быть свободен в её направлении.
+        if abs(goal_err) > self._turn:
+            return Twist2D(
+                linear_x_m_s=0.0,
+                angular_z_rad_s=_clamp(2.0 * goal_err, -self._w_max, self._w_max),
+            )
+
+        goal_clear = _sector_clearance(scan, goal_err, self._cone)
+        if goal_clear >= self._clear_pref:
+            # В направлении цели просторно — едем к ней.
             w = _clamp(2.0 * goal_err, -self._w_max, self._w_max)
-            if abs(goal_err) > self._turn:
-                return Twist2D(linear_x_m_s=0.0, angular_z_rad_s=w)  # сначала довернуть
             v = min(self._v_max * math.cos(goal_err), 1.5 * dist_goal)
             return Twist2D(linear_x_m_s=max(0.0, v), angular_z_rad_s=w)
 
-        # Препятствие в переднем конусе — свернуть в более свободную сторону и обходить дугой.
+        # На пути к цели препятствие — свернуть в более свободную сторону и обходить дугой.
         left = _sector_clearance(scan, math.radians(45.0), self._cone)
         right = _sector_clearance(scan, math.radians(-45.0), self._cone)
         side = 1 if left >= right else -1
         w = _clamp(2.0 * side * math.radians(55.0), -self._w_max, self._w_max)
         span = self._clear_pref - self._stop
+        forward = _sector_clearance(scan, 0.0, self._cone)
         v = self._v_max * (_clamp((forward - self._stop) / span, 0.0, 1.0) if span > 0 else 1.0)
         return Twist2D(linear_x_m_s=max(0.0, 0.6 * v), angular_z_rad_s=w)
 

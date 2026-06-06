@@ -37,9 +37,8 @@ from greenhouse.adapters.sim.loop import SimRobot, build_sim_robot
 from greenhouse.adapters.sim.person import SimPerson, SimPersonDetector
 from greenhouse.adapters.sim.world import PolygonWorld
 from greenhouse.adapters.sim.worlds import greenhouse_rows_world, grid_meta_for_world
-from greenhouse.domain.geometry import Point2D, Pose2D
+from greenhouse.domain.geometry import Point2D, Pose2D, Twist2D
 from greenhouse.domain.grid import CellState, MapMeta, OccupancyGrid
-from greenhouse.navigation.following import PersonFollower
 from greenhouse.navigation.keepout import InMemoryKeepoutRegistry, Zone, ZoneKind
 from greenhouse.navigation.localization import ScanMatchLocalizer
 from greenhouse.navigation.planning import AStarPlanner, Path, PlanOk, ReactiveLocalPlanner
@@ -54,6 +53,8 @@ LOW_BATTERY = 0.30
 FULL_BATTERY = 0.98
 DRAIN_PER_S = 0.012
 REPLAN_EVERY = 8
+FOLLOW_STANDOFF = 0.8
+DOCK_APPROACH_M = 0.9  # на сколько отступает точка подъезда от дока
 
 COL_BG = (24, 26, 30)
 COL_FREE = (210, 214, 220)
@@ -73,7 +74,6 @@ class Agent:
     robot: SimRobot
     color: tuple[int, int, int]
     detector: SimPersonDetector
-    follower: PersonFollower
     path_follower: ReactiveLocalPlanner
     localizer: ScanMatchLocalizer
     planner: AStarPlanner = field(default_factory=AStarPlanner)
@@ -81,6 +81,9 @@ class Agent:
     goal: Pose2D | None = None
     path: Path | None = None
     replan_timer: int = 0
+    docking: bool = False  # финальный заезд на док по прямой
+    last_person: Point2D | None = None  # последняя видимая позиция цели
+    lost_ticks: int = 0
 
 
 class App:
@@ -90,6 +93,9 @@ class App:
         self.base_cells = _occupancy_cells(self.world, self.meta)
         self.keepout = InMemoryKeepoutRegistry()
         self.dock = Point2D(x_m=0.9, y_m=0.75)
+        # К доку подъезжаем с востока: точка подъезда правее дока, носом на запад.
+        self.dock_approach = Point2D(x_m=self.dock.x_m + DOCK_APPROACH_M, y_m=self.dock.y_m)
+        self.dock_heading = math.pi
         self.person = SimPerson(x_m=4.0, y_m=3.25)
         self.agents: list[Agent] = [self._make_agent("robot-A", 1.0, 0.75),
                                     self._make_agent("robot-B", 7.0, 5.75)]
@@ -117,7 +123,6 @@ class App:
                 world=self.world, robot_state=robot.state, person=self.person,
                 clock=robot.clock, max_range_m=6.0,
             ),
-            follower=PersonFollower(standoff_m=0.8, max_linear_m_s=1.0),
             path_follower=ReactiveLocalPlanner(
                 robot_radius_m=RADIUS_M, max_linear_m_s=1.0, max_angular_rad_s=1.5, goal_tol_m=0.2
             ),
@@ -168,16 +173,11 @@ class App:
         if robot.state.battery_frac < LOW_BATTERY and agent.mode is not RobotMode.CHARGING:
             agent.mode = RobotMode.CHARGING
             agent.goal = Pose2D(x_m=self.dock.x_m, y_m=self.dock.y_m, theta_rad=0.0)
-            agent.path = None
+            agent.path, agent.docking = None, False
 
         pose = robot.state.pose()
         if agent.mode is RobotMode.CHARGING:
-            if pose.point.distance_to(self.dock) <= 0.3:
-                robot.motion.stop()  # на доке — движок заряжает
-                if robot.state.battery_frac >= FULL_BATTERY:
-                    agent.mode = RobotMode.IDLE
-            else:
-                self._drive(agent, self.dock_pose(), scan)
+            self._charge_step(agent, pose, scan)
         elif agent.mode is RobotMode.NAVIGATING and agent.goal is not None:
             if pose.point.distance_to(agent.goal.point) <= 0.25:
                 agent.mode = RobotMode.IDLE
@@ -185,14 +185,64 @@ class App:
             else:
                 self._drive(agent, agent.goal, scan)
         elif agent.mode is RobotMode.FOLLOWING:
-            robot.motion.command(twist=agent.follower.update(observation=agent.detector.detect()))
+            self._follow_step(agent, pose, scan)
         else:
             robot.motion.stop()
 
         robot.engine.step(dt_s=DT_S)
 
-    def dock_pose(self) -> Pose2D:
-        return Pose2D(x_m=self.dock.x_m, y_m=self.dock.y_m, theta_rad=0.0)
+    def _charge_step(self, agent: Agent, pose: Pose2D, scan: LidarScan) -> None:
+        """Зарядка: навигация к точке подъезда → ровный заезд на док с нужной стороны → заряд.
+
+        Заряжаемся только встав на док через фазу заезда — поэтому робот всегда подходит к
+        станции с заданной стороны (с заданным курсом), а не случайно проезжая рядом.
+        """
+        robot = agent.robot
+        if agent.docking:  # фаза финального заезда: строго по прямой носом в док
+            if pose.point.distance_to(self.dock) <= 0.18:
+                robot.motion.stop()  # встал на док — движок заряжает
+                if robot.state.battery_frac >= FULL_BATTERY:
+                    agent.mode, agent.docking = RobotMode.IDLE, False
+            else:
+                robot.motion.command(twist=_aim_drive(pose, self.dock, max_v=0.4))
+        elif pose.point.distance_to(self.dock_approach) <= 0.3:
+            agent.docking = True  # доехали до точки подъезда — начинаем заезд
+        else:
+            self._drive(agent, self.dock_approach_pose(), scan)  # к точке подъезда — с объездом
+
+    def _follow_step(self, agent: Agent, pose: Pose2D, scan: LidarScan) -> None:
+        """Следование к цели через планировщик (объезд препятствий).
+
+        Видим цель — едем к ней в обход помех; на нужной дистанции держим позицию. Если цель
+        скрылась за препятствием — короткое время едем к месту, где видели её последним, чтобы
+        обогнуть помеху и снова поймать. Долго не видно — безопасная остановка.
+        """
+        obs = agent.detector.detect()
+        if obs is not None:
+            agent.lost_ticks = 0
+            ang = pose.theta_rad + obs.bearing_rad
+            agent.last_person = Point2D(
+                x_m=pose.x_m + obs.range_m * math.cos(ang),
+                y_m=pose.y_m + obs.range_m * math.sin(ang),
+            )
+            if obs.range_m <= FOLLOW_STANDOFF + 0.05:
+                agent.robot.motion.stop()  # на нужной дистанции — держим позицию
+                return
+        else:
+            agent.lost_ticks += 1
+            if agent.lost_ticks > 80 or agent.last_person is None:
+                agent.robot.motion.stop()  # цель давно не видно — безопасная остановка
+                agent.path = None
+                return
+
+        target = agent.last_person
+        if pose.point.distance_to(target) <= FOLLOW_STANDOFF + 0.05:
+            agent.robot.motion.stop()
+            return
+        self._drive(agent, Pose2D(x_m=target.x_m, y_m=target.y_m, theta_rad=0.0), scan)
+
+    def dock_approach_pose(self) -> Pose2D:
+        return Pose2D(x_m=self.dock_approach.x_m, y_m=self.dock_approach.y_m, theta_rad=self.dock_heading)
 
     def _drive(self, agent: Agent, goal: Pose2D, scan: LidarScan) -> None:
         agent.replan_timer += 1
@@ -246,7 +296,7 @@ class App:
         for ag, (x, y) in zip(self.agents, [(1.0, 0.75), (7.0, 5.75)], strict=True):
             s = ag.robot.state
             s.x_m, s.y_m, s.theta_rad, s.battery_frac = x, y, 0.0, 1.0
-            ag.mode, ag.goal, ag.path = RobotMode.IDLE, None, None
+            ag.mode, ag.goal, ag.path, ag.docking = RobotMode.IDLE, None, None, False
             ag.robot.motion.stop()
         self.person.x_m, self.person.y_m = 4.0, 3.25
         self.status = "Сброс"
@@ -302,14 +352,14 @@ class App:
             elif event.key == pygame.K_2:
                 self.selected = 1
             elif event.key == pygame.K_f:
-                a.mode, a.path = RobotMode.FOLLOWING, None
+                a.mode, a.path, a.docking = RobotMode.FOLLOWING, None, False
                 self.status = f"{a.name}: следую за человеком"
             elif event.key == pygame.K_g:
-                a.mode = RobotMode.IDLE
+                a.mode, a.docking = RobotMode.IDLE, False
                 self.status = f"{a.name}: навигация (кликни цель)"
             elif event.key == pygame.K_c:
-                a.mode, a.path = RobotMode.CHARGING, None
-                a.goal = self.dock_pose()
+                a.mode, a.path, a.docking = RobotMode.CHARGING, None, False
+                a.goal = Pose2D(x_m=self.dock.x_m, y_m=self.dock.y_m, theta_rad=0.0)
                 self.status = f"{a.name}: на зарядку"
             elif event.key == pygame.K_z:
                 self.zone_mode, self.zone_corner = True, None
@@ -324,7 +374,7 @@ class App:
                 self.show_loc = not self.show_loc
                 self.status = f"Локализация: {'вкл' if self.show_loc else 'выкл'}"
             elif event.key == pygame.K_SPACE:
-                a.mode, a.path = RobotMode.IDLE, None
+                a.mode, a.path, a.docking = RobotMode.IDLE, None, False
                 a.robot.motion.stop()
                 self.status = f"{a.name}: стоп"
             elif event.key == pygame.K_r:
@@ -357,6 +407,9 @@ class App:
             screen.blit(s, (0, 0))
 
         dx, dy = self.to_screen(self.dock.x_m, self.dock.y_m)  # док
+        ax, ay = self.to_screen(self.dock_approach.x_m, self.dock_approach.y_m)
+        pygame.draw.line(screen, COL_DOCK, (ax, ay), (dx, dy), 1)   # ось подъезда
+        pygame.draw.circle(screen, COL_DOCK, (ax, ay), 4, 1)
         pygame.draw.rect(screen, COL_DOCK, (dx - 12, dy - 12, 24, 24), 2)
         screen.blit(small.render("DOCK", True, COL_DOCK), (dx - 16, dy + 12))
 
@@ -415,6 +468,15 @@ def _occupancy_cells(world: PolygonWorld, meta: MapMeta) -> list[CellState]:
         for r in range(meta.height_px)
         for c in range(meta.width_px)
     ]
+
+
+def _aim_drive(pose: Pose2D, target: Point2D, *, max_v: float) -> Twist2D:
+    """Ровно ехать на точку: довернуть носом и двигаться по прямой (финальный заезд на док)."""
+    err = math.atan2(target.y_m - pose.y_m, target.x_m - pose.x_m) - pose.theta_rad
+    err = math.atan2(math.sin(err), math.cos(err))
+    w = max(-1.5, min(1.5, 2.0 * err))
+    v = 0.0 if abs(err) > 0.4 else min(max_v, 1.5 * pose.point.distance_to(target))
+    return Twist2D(linear_x_m_s=max(0.0, v), angular_z_rad_s=w)
 
 
 def _mark(cells: list[CellState], meta: MapMeta, x_m: float, y_m: float, radius_m: float) -> None:
