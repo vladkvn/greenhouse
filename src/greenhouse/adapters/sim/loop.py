@@ -20,7 +20,7 @@ from greenhouse.adapters.sim.world import PolygonWorld
 from greenhouse.domain.geometry import Point2D
 from greenhouse.domain.identifiers import RobotId
 from greenhouse.navigation.following import PersonFollower
-from greenhouse.navigation.mapping import MapBuilder
+from greenhouse.navigation.mapping import ConfidenceGatedMapper, MapBuilder
 from greenhouse.navigation.planning import LocalPlanner
 from greenhouse.orchestration.interfaces import RobotStatus
 from greenhouse.orchestration.modes import RobotMode
@@ -44,11 +44,18 @@ class SimRobot:
     local_planner: LocalPlanner | None = None
     person_detector: TargetDetector | None = None
     follower: PersonFollower | None = None
+    live_mapper: ConfidenceGatedMapper | None = None  # непрерывная актуализация на ходу
 
     def tick(self, *, dt_s: float) -> RobotStatus:
         scan = self.lidar.read_scan()
         odom = self.odometry.read_odometry()
         estimate = self.localizer.update(scan=scan, odometry=odom)
+
+        # Непрерывная актуализация карты в ездовых режимах (с защитой по уверенности позы).
+        if self.live_mapper is not None and self.mode in (RobotMode.NAVIGATING, RobotMode.FOLLOWING):
+            self.live_mapper.maybe_ingest(
+                scan=scan, pose=estimate.pose, confidence=estimate.confidence
+            )
 
         # Поведение по режиму. Idle = стоп; Mapping = карта; Navigating = вдоль пути.
         if self.mode is RobotMode.IDLE:

@@ -9,11 +9,12 @@ from __future__ import annotations
 import math
 from collections import deque
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Protocol
 
 from pydantic import BaseModel
 
-from greenhouse.domain.geometry import Point2D
+from greenhouse.domain.geometry import Point2D, Pose2D
 from greenhouse.domain.grid import CellState, MapMeta, OccupancyGrid
 from greenhouse.sensing.interfaces import LidarScan
 
@@ -207,3 +208,132 @@ class MapStore(Protocol):
     def load(self, *, label: str) -> StoredMap | None: ...
 
     def list_labels(self) -> list[str]: ...
+
+
+# --- Непрерывная актуализация карты (Инкремент 11) ---
+
+
+class ConfidenceGatedMapper:
+    """Обёртка над `MapBuilder`: поглощает скан только при достаточной уверенности позы.
+
+    Защита от «размазывания» карты: если локализация неуверенна (низкий `confidence`),
+    наблюдение игнорируется — плохая поза не портит стабильную карту. Иначе скан штатно
+    подмешивается, поэтому появившиеся/исчезнувшие препятствия отражаются при проездах
+    (лог-odds сам усиливает занятость и очищает её при повторных свободных наблюдениях).
+    """
+
+    def __init__(self, *, mapper: MapBuilder, min_confidence: float = 0.5) -> None:
+        self._mapper = mapper
+        self._min_conf = min_confidence
+
+    def begin_session(self) -> None:
+        self._mapper.begin_session()
+
+    def maybe_ingest(self, *, scan: LidarScan, pose: Pose2D, confidence: float) -> bool:
+        """Подмешать скан, если уверенность достаточна. True — приняли, False — пропустили."""
+        if confidence < self._min_conf:
+            return False
+        self._mapper.ingest_scan(
+            scan=scan, pose_xytheta=(pose.x_m, pose.y_m, pose.theta_rad)
+        )
+        return True
+
+    def current_map(self) -> OccupancyGrid:
+        return self._mapper.current_map()
+
+
+class DynamicObstacleLayer:
+    """Краткоживущий слой динамических препятствий поверх стабильной карты.
+
+    Ячейка, где лидар видит препятствие, которого нет в стабильной карте, помечается с TTL;
+    со временем «выветривается» (`decay`). Так внезапная помеха учитывается планировщиком
+    сразу, а после исчезновения слой сам очищается — стабильная карта при этом не трогается.
+    """
+
+    def __init__(self, *, meta: MapMeta, ttl_ticks: int = 30) -> None:
+        self._meta = meta
+        self._ttl = ttl_ticks
+        self._age: dict[tuple[int, int], int] = {}
+
+    def observe(self, *, scan: LidarScan, pose: Pose2D, base: OccupancyGrid) -> None:
+        meta = self._meta
+        for i, r in enumerate(scan.ranges_m):
+            if not math.isfinite(r) or r >= scan.range_max_m:
+                continue
+            angle = pose.theta_rad + scan.angle_min_rad + i * scan.angle_increment_rad
+            hit = Point2D(x_m=pose.x_m + r * math.cos(angle), y_m=pose.y_m + r * math.sin(angle))
+            row, col = meta.world_to_cell(hit)
+            if meta.in_bounds(row, col) and base.at(row, col) is not CellState.OCCUPIED:
+                self._age[(row, col)] = self._ttl  # помеха вне стабильной карты — динамика
+
+    def decay(self) -> None:
+        for cell in list(self._age):
+            self._age[cell] -= 1
+            if self._age[cell] <= 0:
+                del self._age[cell]
+
+    def cells(self) -> set[tuple[int, int]]:
+        return set(self._age)
+
+    def apply_to(self, grid: OccupancyGrid) -> OccupancyGrid:
+        """Наложить динамические препятствия на карту (для планирования)."""
+        if not self._age:
+            return grid
+        cells = list(grid.cells)
+        w = grid.meta.width_px
+        for row, col in self._age:
+            if grid.meta.in_bounds(row, col):
+                cells[row * w + col] = CellState.OCCUPIED
+        return OccupancyGrid(meta=grid.meta, cells=cells)
+
+
+def merge_occupancy(base: OccupancyGrid, update: OccupancyGrid) -> OccupancyGrid:
+    """Слить карты: где `update` знает (FREE/OCCUPIED) — берём его, иначе оставляем `base`."""
+    if base.meta != update.meta:
+        raise ValueError("карты несовместимы: разные meta")
+    cells = [
+        u if u is not CellState.UNKNOWN else b
+        for b, u in zip(base.cells, update.cells, strict=True)
+    ]
+    return OccupancyGrid(meta=base.meta, cells=cells)
+
+
+class InMemoryMapStore:
+    """Реализует `MapStore` в памяти (живёт в пределах процесса)."""
+
+    def __init__(self) -> None:
+        self._maps: dict[str, StoredMap] = {}
+
+    def save(self, *, label: str, grid: OccupancyGrid) -> None:
+        self._maps[label] = StoredMap(label=label, grid=grid)
+
+    def load(self, *, label: str) -> StoredMap | None:
+        return self._maps.get(label)
+
+    def list_labels(self) -> list[str]:
+        return sorted(self._maps)
+
+
+class FileMapStore:
+    """Реализует `MapStore` поверх файлов JSON — карта переживает перезапуск процесса."""
+
+    def __init__(self, *, directory: str | Path) -> None:
+        self._dir = Path(directory)
+        self._dir.mkdir(parents=True, exist_ok=True)
+
+    def _path(self, label: str) -> Path:
+        return self._dir / f"{label}.json"
+
+    def save(self, *, label: str, grid: OccupancyGrid) -> None:
+        self._path(label).write_text(
+            StoredMap(label=label, grid=grid).model_dump_json(), encoding="utf-8"
+        )
+
+    def load(self, *, label: str) -> StoredMap | None:
+        path = self._path(label)
+        if not path.exists():
+            return None
+        return StoredMap.model_validate_json(path.read_text(encoding="utf-8"))
+
+    def list_labels(self) -> list[str]:
+        return sorted(p.stem for p in self._dir.glob("*.json"))
