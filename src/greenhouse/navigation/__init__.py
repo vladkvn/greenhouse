@@ -1,7 +1,12 @@
 """Слой навигации: карта, локализация, планирование, закрытые зоны."""
 
 from greenhouse.navigation.following import PersonFollower
-from greenhouse.navigation.keepout import KeepoutRegistry, Zone, ZoneKind
+from greenhouse.navigation.keepout import (
+    InMemoryKeepoutRegistry,
+    KeepoutRegistry,
+    Zone,
+    ZoneKind,
+)
 from greenhouse.navigation.localization import Localizer, PoseEstimate, ScanMatchLocalizer
 from greenhouse.navigation.mapping import (
     EvidenceGridMapper,
@@ -25,6 +30,7 @@ from greenhouse.navigation.planning import (
 
 __all__ = [
     "PersonFollower",
+    "InMemoryKeepoutRegistry",
     "KeepoutRegistry",
     "Zone",
     "ZoneKind",

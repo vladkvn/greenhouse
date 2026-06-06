@@ -16,6 +16,7 @@ from greenhouse.adapters.sim.loop import SimRobot
 from greenhouse.domain.errors import Failure, FailureCode
 from greenhouse.domain.geometry import Point2D, Pose2D
 from greenhouse.domain.grid import CellState, OccupancyGrid
+from greenhouse.navigation.keepout import KeepoutRegistry
 from greenhouse.navigation.planning import (
     AStarPlanner,
     GlobalPlanner,
@@ -42,10 +43,12 @@ class SimGoalNavigator:
         dt_s: float = 0.1,
         max_ticks: int = 3000,
         replan_every: int = 8,
+        keepout: KeepoutRegistry | None = None,
     ) -> None:
         self._robot = robot
         self._grid = grid
         self._radius = robot_radius_m
+        self._keepout = keepout
         self._planner = planner or AStarPlanner()
         self._local = ReactiveLocalPlanner(
             robot_radius_m=robot_radius_m,
@@ -91,9 +94,13 @@ class SimGoalNavigator:
 
     def _plan_to(self, goal: Pose2D) -> PlanResult:
         grid = OccupancyGrid(meta=self._grid.meta, cells=self._cells)
+        cost_layer = None
+        if self._keepout is not None:
+            grid = self._keepout.apply_to(grid=grid)  # KEEPOUT-зоны → занятые ячейки
+            cost_layer = self._keepout.cost_layer(meta=grid.meta)  # SLOW/PREFERRED
         return self._planner.plan(
             grid=grid, start=self._robot.state.pose(), goal=goal,
-            robot_radius_m=self._radius, best_effort=True,
+            robot_radius_m=self._radius, best_effort=True, cost_layer=cost_layer,
         )
 
     def _fuse_scan(self) -> None:

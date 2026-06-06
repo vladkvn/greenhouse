@@ -52,6 +52,7 @@ class GlobalPlanner(Protocol):
         goal: Pose2D,
         robot_radius_m: float,
         best_effort: bool = False,
+        cost_layer: list[float] | None = None,
     ) -> PlanResult: ...
 
 
@@ -112,12 +113,14 @@ class AStarPlanner:
         goal: Pose2D,
         robot_radius_m: float,
         best_effort: bool = False,
+        cost_layer: list[float] | None = None,
     ) -> PlanResult:
         """Построить путь до `goal`.
 
         При `best_effort=True`, если сама цель недостижима (занята/в инфляции/в изоляции),
         вернуть путь до ближайшей достижимой ячейки рядом с ней, а не `Failure` —
-        робот подъедет максимально близко.
+        робот подъедет максимально близко. `cost_layer` (row-major, как у keep-out зон)
+        делает ячейки дороже (SLOW) или дешевле (PREFERRED) при поиске.
         """
         meta = grid.meta
         blocked = _inflate(grid, robot_radius_m)
@@ -128,7 +131,9 @@ class AStarPlanner:
         if not best_effort and not self._free(grid, blocked, goal_cell):
             return Failure(code=FailureCode.PLANNER_FAILED, message="цель недостижима (занята)")
 
-        cells, reached = self._astar(grid, blocked, start_cell, goal_cell, best_effort=best_effort)
+        cells, reached = self._astar(
+            grid, blocked, start_cell, goal_cell, best_effort=best_effort, cost_layer=cost_layer
+        )
         if cells is None:
             return Failure(code=FailureCode.PLANNER_FAILED, message="путь не найден")
 
@@ -157,6 +162,7 @@ class AStarPlanner:
         goal: tuple[int, int],
         *,
         best_effort: bool,
+        cost_layer: list[float] | None = None,
     ) -> tuple[list[tuple[int, int]] | None, bool]:
         """Вернуть `(путь_в_ячейках, достигнута_ли_сама_цель)`.
 
@@ -192,7 +198,10 @@ class AStarPlanner:
                         continue
                     if not self._free(grid, blocked, (r, c + dc)):
                         continue
-                tentative = g_score[cur] + step
+                weight = 1.0
+                if cost_layer is not None:
+                    weight = max(0.1, 1.0 + cost_layer[nb[0] * grid.meta.width_px + nb[1]])
+                tentative = g_score[cur] + step * weight
                 if tentative < g_score.get(nb, math.inf):
                     g_score[nb] = tentative
                     came_from[nb] = cur
