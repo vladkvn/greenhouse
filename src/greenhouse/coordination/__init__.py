@@ -1,5 +1,6 @@
 """Слой координации флота (деление проездов)."""
 
+from greenhouse.coordination.coordinator import InMemoryTrafficCoordinator
 from greenhouse.coordination.interfaces import (
     Reservation,
     ReservationDenied,
@@ -10,6 +11,7 @@ from greenhouse.coordination.interfaces import (
 )
 
 __all__ = [
+    "InMemoryTrafficCoordinator",
     "Reservation",
     "ReservationDenied",
     "ReservationGranted",
