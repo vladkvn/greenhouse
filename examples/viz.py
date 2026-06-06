@@ -123,7 +123,7 @@ class App:
             world=self.world, robot_id=name, start_x_m=x, start_y_m=y,
             dock=self.dock, battery_drain_per_s=DRAIN_PER_S,
         )
-        loc = ScanMatchLocalizer()
+        loc = ScanMatchLocalizer(refine_iters=1)  # дёшево для оверлея; прогноз ведёт точно
         loc.set_map(grid=OccupancyGrid(meta=self.meta, cells=self.base_cells))
         loc.set_initial_pose(pose=robot.state.pose())
         agent = Agent(
@@ -346,6 +346,7 @@ class App:
             s.x_m, s.y_m, s.theta_rad, s.battery_frac = x, y, 0.0, 1.0
             ag.mode, ag.goal, ag.path, ag.docking = RobotMode.IDLE, None, None, False
             ag.recover_ticks, ag.drive_stuck, ag.drive_xy = 0, 0, None
+            ag.localizer.set_initial_pose(pose=ag.robot.state.pose())
             ag.robot.motion.stop()
         self.person.x_m, self.person.y_m = 4.0, 3.25
         self.status = "Сброс"
@@ -426,6 +427,9 @@ class App:
                 self.status = "Зоны очищены"
             elif event.key == pygame.K_l:
                 self.show_loc = not self.show_loc
+                if self.show_loc:  # пере-инициализировать на текущую позу (иначе оценка отстала)
+                    for ag in self.agents:
+                        ag.localizer.set_initial_pose(pose=ag.robot.state.pose())
                 self.status = f"Локализация: {'вкл' if self.show_loc else 'выкл'}"
             elif event.key == pygame.K_SPACE:
                 a.mode, a.path, a.docking = RobotMode.IDLE, None, False
