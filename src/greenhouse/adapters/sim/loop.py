@@ -19,6 +19,7 @@ from greenhouse.adapters.sim.state import SimState
 from greenhouse.adapters.sim.world import PolygonWorld
 from greenhouse.domain.identifiers import RobotId
 from greenhouse.navigation.mapping import MapBuilder
+from greenhouse.navigation.planning import LocalPlanner
 from greenhouse.orchestration.interfaces import RobotStatus
 from greenhouse.orchestration.modes import RobotMode
 
@@ -37,13 +38,14 @@ class SimRobot:
     motion: SimMotion
     mode: RobotMode = RobotMode.IDLE
     map_builder: MapBuilder | None = None
+    local_planner: LocalPlanner | None = None
 
     def tick(self, *, dt_s: float) -> RobotStatus:
         scan = self.lidar.read_scan()
         odom = self.odometry.read_odometry()
         estimate = self.localizer.update(scan=scan, odometry=odom)
 
-        # Поведение по режиму. Idle = стоп; Mapping = накапливать карту по сканам.
+        # Поведение по режиму. Idle = стоп; Mapping = карта; Navigating = вдоль пути.
         if self.mode is RobotMode.IDLE:
             self.motion.stop()
         elif self.mode is RobotMode.MAPPING and self.map_builder is not None:
@@ -51,6 +53,13 @@ class SimRobot:
             self.map_builder.ingest_scan(
                 scan=scan, pose_xytheta=(p.x_m, p.y_m, p.theta_rad)
             )
+        elif self.mode is RobotMode.NAVIGATING and self.local_planner is not None:
+            if self.local_planner.is_goal_reached(pose=estimate.pose):
+                self.motion.stop()
+            else:
+                self.motion.command(
+                    twist=self.local_planner.compute_command(pose=estimate.pose, scan=scan)
+                )
 
         self.engine.step(dt_s=dt_s)
 

@@ -11,6 +11,7 @@ from greenhouse.adapters.sim.lidar import SimLidar
 from greenhouse.adapters.sim.localization import SimTruthLocalizer
 from greenhouse.adapters.sim.loop import SimRobot, build_sim_robot, run
 from greenhouse.adapters.sim.motion import SimMotion
+from greenhouse.adapters.sim.navigation import SimGoalNavigator
 from greenhouse.adapters.sim.odometry import SimOdometry
 from greenhouse.adapters.sim.state import SimState
 from greenhouse.adapters.sim.world import PolygonWorld, Segment
@@ -29,6 +30,7 @@ __all__ = [
     "build_sim_robot",
     "run",
     "SimMotion",
+    "SimGoalNavigator",
     "SimOdometry",
     "SimState",
     "PolygonWorld",

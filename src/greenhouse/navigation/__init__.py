@@ -9,6 +9,7 @@ from greenhouse.navigation.mapping import (
     StoredMap,
 )
 from greenhouse.navigation.planning import (
+    AStarPlanner,
     GlobalPlanner,
     GoalNavigator,
     LocalPlanner,
@@ -17,6 +18,7 @@ from greenhouse.navigation.planning import (
     Path,
     PlanOk,
     PlanResult,
+    PurePursuitLocalPlanner,
 )
 
 __all__ = [
@@ -29,6 +31,7 @@ __all__ = [
     "MapBuilder",
     "MapStore",
     "StoredMap",
+    "AStarPlanner",
     "GlobalPlanner",
     "GoalNavigator",
     "LocalPlanner",
@@ -37,4 +40,5 @@ __all__ = [
     "Path",
     "PlanOk",
     "PlanResult",
+    "PurePursuitLocalPlanner",
 ]
