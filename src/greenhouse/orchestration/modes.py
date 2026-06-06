@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class RobotMode(str, Enum):
+class RobotMode(StrEnum):
     IDLE = "idle"
     MAPPING = "mapping"
     NAVIGATING = "navigating"

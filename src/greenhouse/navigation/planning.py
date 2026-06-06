@@ -41,7 +41,9 @@ class GlobalPlanner(Protocol):
     не знает, он видит единую модель занятости.
     """
 
-    def plan(self, *, grid: OccupancyGrid, start: Pose2D, goal: Pose2D, robot_radius_m: float) -> PlanResult: ...
+    def plan(
+        self, *, grid: OccupancyGrid, start: Pose2D, goal: Pose2D, robot_radius_m: float
+    ) -> PlanResult: ...
 
 
 class LocalPlanner(Protocol):

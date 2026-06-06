@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol
 
 from pydantic import BaseModel, Field
@@ -16,7 +16,7 @@ from greenhouse.domain.grid import MapMeta, OccupancyGrid
 from greenhouse.domain.identifiers import ZoneId
 
 
-class ZoneKind(str, Enum):
+class ZoneKind(StrEnum):
     KEEPOUT = "keepout"      # полностью непроезжая
     SLOW = "slow"            # проезжая, но с ограничением скорости
     PREFERRED = "preferred"  # поощряемая (снижает стоимость пути)

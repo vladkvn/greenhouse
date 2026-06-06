@@ -3,13 +3,13 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel
 
 
-class FailureCode(str, Enum):
+class FailureCode(StrEnum):
     LOCALIZATION_LOST = "localization_lost"
     OBSTACLE_BLOCKED = "obstacle_blocked"
     PLANNER_FAILED = "planner_failed"

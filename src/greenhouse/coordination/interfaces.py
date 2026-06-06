@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Literal, Protocol
 
 from pydantic import BaseModel
@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from greenhouse.domain.identifiers import RobotId, SegmentId
 
 
-class SegmentKind(str, Enum):
+class SegmentKind(StrEnum):
     LANE = "lane"                    # узкий проезд: эксклюзивный
     PASSING_PLACE = "passing_place"  # расширение/разъезд: эксклюзив не нужен
     JUNCTION = "junction"            # перекрёсток

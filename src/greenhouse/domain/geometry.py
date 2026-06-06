@@ -16,7 +16,7 @@ class Point2D(BaseModel, frozen=True):
     x_m: float
     y_m: float
 
-    def distance_to(self, other: "Point2D") -> float:
+    def distance_to(self, other: Point2D) -> float:
         return math.hypot(self.x_m - other.x_m, self.y_m - other.y_m)
 
 
@@ -39,5 +39,5 @@ class Twist2D(BaseModel, frozen=True):
     angular_z_rad_s: float = Field(description="Угловая скорость (рад/с).")
 
     @classmethod
-    def stop(cls) -> "Twist2D":
+    def stop(cls) -> Twist2D:
         return cls(linear_x_m_s=0.0, angular_z_rad_s=0.0)

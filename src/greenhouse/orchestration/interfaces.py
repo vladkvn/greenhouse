@@ -7,14 +7,13 @@
 
 from __future__ import annotations
 
-from typing import Literal, Protocol, Union
+from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
 
 from greenhouse.domain.geometry import Pose2D
 from greenhouse.domain.identifiers import RobotId
 from greenhouse.orchestration.modes import RobotMode
-
 
 # --- Команды (вход оркестратора) ---
 
@@ -43,7 +42,7 @@ class EmergencyStop(BaseModel, frozen=True):
     kind: Literal["emergency_stop"] = "emergency_stop"
 
 
-Command = Union[StartMapping, GoTo, FollowPerson, GoCharge, Stop, EmergencyStop]
+Command = StartMapping | GoTo | FollowPerson | GoCharge | Stop | EmergencyStop
 """Дискриминированное объединение команд (по полю kind)."""
 
 
