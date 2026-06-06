@@ -11,7 +11,7 @@ keep-out зоны и второго робота (перепланировани
     ПКМ              — переместить цель-человека сюда
     1 / 2            — выбрать робота A / B
     F                — режим следования за человеком для выбранного робота
-    M                — режим построения карты с нуля (кликай точки — карта строится по лидару)
+    M                — авто-исследование: робот сам ездит по логике границ и строит карту с нуля
     G                — режим навигации к цели (по умолчанию)
     C                — отправить выбранного робота на зарядку
     Z                — нарисовать keep-out зону (два клика по углам)
@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 
 import pygame
 
+from greenhouse.adapters.sim.exploration import SimExplorer
 from greenhouse.adapters.sim.loop import SimRobot, build_sim_robot
 from greenhouse.adapters.sim.person import SimPerson, SimPersonDetector
 from greenhouse.adapters.sim.world import PolygonWorld
@@ -87,6 +88,7 @@ class Agent:
     docking: bool = False  # финальный заезд на док по прямой
     last_person: Point2D | None = None  # последняя видимая позиция цели
     lost_ticks: int = 0
+    explorer: SimExplorer | None = None  # авто-исследование (frontier-based)
 
 
 class App:
@@ -120,7 +122,7 @@ class App:
         loc = ScanMatchLocalizer()
         loc.set_map(grid=OccupancyGrid(meta=self.meta, cells=self.base_cells))
         loc.set_initial_pose(pose=robot.state.pose())
-        return Agent(
+        agent = Agent(
             name=name, robot=robot, color=ROBOT_COLORS[name],
             detector=SimPersonDetector(
                 world=self.world, robot_state=robot.state, person=self.person,
@@ -132,6 +134,8 @@ class App:
             localizer=loc,
             mapper=EvidenceGridMapper(meta=self.meta),
         )
+        agent.explorer = SimExplorer(robot=robot, mapper=agent.mapper, robot_radius_m=RADIUS_M)
+        return agent
 
     # --- координаты ---
     def to_screen(self, x_m: float, y_m: float) -> tuple[int, int]:
@@ -190,14 +194,10 @@ class App:
                 self._drive(agent, agent.goal, scan)
         elif agent.mode is RobotMode.FOLLOWING:
             self._follow_step(agent, pose, scan)
-        elif agent.mode is RobotMode.MAPPING:
-            agent.mapper.ingest_scan(
-                scan=scan, pose_xytheta=(pose.x_m, pose.y_m, pose.theta_rad)
-            )  # строим карту из лучей
-            if agent.goal is not None and pose.point.distance_to(agent.goal.point) > 0.25:
-                self._drive(agent, agent.goal, scan)  # едем по кликнутым точкам, исследуя
-            else:
-                robot.motion.stop()
+        elif agent.mode is RobotMode.MAPPING and agent.explorer is not None:
+            if agent.explorer.update():  # авто-исследование; True — карта построена
+                agent.mode = RobotMode.IDLE
+                self.status = f"{agent.name}: карта построена ({agent.explorer.coverage_known() * 100:.0f}%)"
         else:
             robot.motion.stop()
 
@@ -280,9 +280,11 @@ class App:
                 self.zone_mode = False
             return
         agent = self.agents[self.selected]
+        if agent.mode is RobotMode.MAPPING:  # исследование идёт само, клики не нужны
+            self.status = f"{agent.name}: идёт авто-исследование (G — выйти)"
+            return
         agent.goal = Pose2D(x_m=p.x_m, y_m=p.y_m, theta_rad=0.0)
-        if agent.mode is not RobotMode.MAPPING:  # в режиме картирования режим не меняем
-            agent.mode = RobotMode.NAVIGATING
+        agent.mode = RobotMode.NAVIGATING
         agent.path = None
         ok = self.plan(agent, agent.goal)
         far = agent.path is not None and agent.path.waypoints[-1].point.distance_to(p) > 0.3
@@ -372,8 +374,9 @@ class App:
                 self.status = f"{a.name}: навигация (кликни цель)"
             elif event.key == pygame.K_m:
                 a.mode, a.goal, a.path = RobotMode.MAPPING, None, None
-                a.mapper.begin_session()  # карта с нуля
-                self.status = f"{a.name}: картирование — кликай точки, карта строится"
+                if a.explorer is not None:
+                    a.explorer.start()  # карта с нуля
+                self.status = f"{a.name}: авто-исследование — строю карту, пока не разведаю всё"
             elif event.key == pygame.K_c:
                 a.mode, a.path, a.docking = RobotMode.CHARGING, None, False
                 a.goal = Pose2D(x_m=self.dock.x_m, y_m=self.dock.y_m, theta_rad=0.0)

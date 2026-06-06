@@ -13,6 +13,7 @@ from greenhouse.navigation.mapping import (
     MapBuilder,
     MapStore,
     StoredMap,
+    nearest_frontier,
 )
 from greenhouse.navigation.planning import (
     AStarPlanner,
@@ -41,6 +42,7 @@ __all__ = [
     "MapBuilder",
     "MapStore",
     "StoredMap",
+    "nearest_frontier",
     "AStarPlanner",
     "GlobalPlanner",
     "GoalNavigator",

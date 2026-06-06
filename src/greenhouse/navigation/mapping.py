@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import math
+from collections import deque
 from collections.abc import Iterator
 from typing import Protocol
 
@@ -112,6 +113,58 @@ class EvidenceGridMapper:
         if logodds < self._free_threshold:
             return CellState.FREE
         return CellState.UNKNOWN
+
+
+_FRONTIER_NEIGHBORS = ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1))
+
+
+def nearest_frontier(
+    grid: OccupancyGrid,
+    start: tuple[int, int],
+    *,
+    min_cells: int = 1,
+    clear_rad: int = 0,
+    blacklist: set[tuple[int, int]] | None = None,
+) -> tuple[int, int] | None:
+    """Ближайшая ОТКРЫТАЯ граница «свободно↔неизвестно» (для frontier-исследования).
+
+    BFS по известному свободному пространству от `start`; возвращает свободную ячейку,
+    которая граничит с `UNKNOWN`, отстоит от старта не ближе `min_cells`, имеет запас
+    `clear_rad` от занятых ячеек (пристенные ложные границы за стеной пропускаем) и не лежит
+    в окрестности (`min_cells`) ранее недостижимых границ из `blacklist`. None — границ нет
+    (достижимое пространство разведано)."""
+    black = blacklist or set()
+    meta = grid.meta
+    queue: deque[tuple[int, int]] = deque([start])
+    seen = {start}
+    while queue:
+        r, c = queue.popleft()
+        if (
+            grid.at(r, c) is CellState.FREE
+            and abs(r - start[0]) + abs(c - start[1]) >= min_cells
+            and _has_unknown_neighbor(grid, r, c)
+            and not _near_occupied(grid, r, c, clear_rad)
+            and not any(abs(r - br) <= min_cells and abs(c - bc) <= min_cells for br, bc in black)
+        ):
+            return r, c
+        for dr, dc in _FRONTIER_NEIGHBORS:
+            nb = (r + dr, c + dc)
+            if nb not in seen and meta.in_bounds(nb[0], nb[1]) and grid.at(*nb) is CellState.FREE:
+                seen.add(nb)
+                queue.append(nb)
+    return None
+
+
+def _has_unknown_neighbor(grid: OccupancyGrid, row: int, col: int) -> bool:
+    return any(grid.at(row + dr, col + dc) is CellState.UNKNOWN for dr, dc in _FRONTIER_NEIGHBORS)
+
+
+def _near_occupied(grid: OccupancyGrid, row: int, col: int, rad: int) -> bool:
+    return any(
+        grid.at(row + dr, col + dc) is CellState.OCCUPIED
+        for dr in range(-rad, rad + 1)
+        for dc in range(-rad, rad + 1)
+    )
 
 
 def _bresenham(start: tuple[int, int], end: tuple[int, int]) -> Iterator[tuple[int, int]]:
