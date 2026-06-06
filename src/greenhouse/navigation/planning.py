@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import heapq
 import math
+from collections import deque
 from itertools import count
 from typing import Literal, Protocol
 
@@ -126,14 +127,24 @@ class AStarPlanner:
         blocked = _inflate(grid, robot_radius_m)
         start_cell = meta.world_to_cell(start.point)
         goal_cell = meta.world_to_cell(goal.point)
-        if not self._free(grid, blocked, start_cell):
+        if not meta.in_bounds(*start_cell) or grid.at(*start_cell) is CellState.OCCUPIED:
             return Failure(code=FailureCode.PLANNER_FAILED, message="старт в занятой ячейке")
+        # Старт оказался в зоне инфляции (робот подъехал к стене ближе зазора) — ведём поиск
+        # из ближайшей свободной ячейки, чтобы план не падал и робот мог выехать.
+        search_start = start_cell
+        if not self._free(grid, blocked, start_cell):
+            escaped = self._escape_cell(grid, blocked, start_cell)
+            if escaped is None:
+                return Failure(code=FailureCode.PLANNER_FAILED, message="робот зажат у препятствия")
+            search_start = escaped
         if not best_effort and not self._free(grid, blocked, goal_cell):
             return Failure(code=FailureCode.PLANNER_FAILED, message="цель недостижима (занята)")
 
         cells, reached = self._astar(
-            grid, blocked, start_cell, goal_cell, best_effort=best_effort, cost_layer=cost_layer
+            grid, blocked, search_start, goal_cell, best_effort=best_effort, cost_layer=cost_layer
         )
+        if cells is not None and cells and cells[0] != start_cell:
+            cells = [start_cell, *cells]  # вернуть фактический старт в начало пути
         if cells is None:
             return Failure(code=FailureCode.PLANNER_FAILED, message="путь не найден")
 
@@ -153,6 +164,28 @@ class AStarPlanner:
         if not self._allow_unknown and grid.at(row, col) is CellState.UNKNOWN:
             return False
         return True
+
+    def _escape_cell(
+        self, grid: OccupancyGrid, blocked: set[tuple[int, int]], start: tuple[int, int]
+    ) -> tuple[int, int] | None:
+        """Ближайшая свободная (вне инфляции) ячейка из зажатого старта.
+
+        BFS сквозь зону инфляции (можно идти по любым не-OCCUPIED ячейкам), пока не выйдем в
+        по-настоящему свободную ячейку, из которой корректно стартует основной поиск."""
+        queue: deque[tuple[int, int]] = deque([start])
+        seen = {start}
+        meta = grid.meta
+        while queue:
+            cell = queue.popleft()
+            if self._free(grid, blocked, cell):
+                return cell
+            r, c = cell
+            for dr, dc, _ in _NEIGHBORS:
+                nb = (r + dr, c + dc)
+                if nb not in seen and meta.in_bounds(nb[0], nb[1]) and grid.at(*nb) is not CellState.OCCUPIED:
+                    seen.add(nb)
+                    queue.append(nb)
+        return None
 
     def _astar(
         self,

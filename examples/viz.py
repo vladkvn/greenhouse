@@ -44,7 +44,7 @@ from greenhouse.domain.grid import CellState, MapMeta, OccupancyGrid
 from greenhouse.navigation.keepout import InMemoryKeepoutRegistry, Zone, ZoneKind
 from greenhouse.navigation.localization import ScanMatchLocalizer
 from greenhouse.navigation.mapping import EvidenceGridMapper
-from greenhouse.navigation.planning import AStarPlanner, Path, PlanOk, ReactiveLocalPlanner
+from greenhouse.navigation.planning import AStarPlanner, Path, PlanOk, PurePursuitLocalPlanner
 from greenhouse.orchestration.modes import RobotMode
 from greenhouse.sensing.interfaces import LidarScan
 
@@ -77,7 +77,7 @@ class Agent:
     robot: SimRobot
     color: tuple[int, int, int]
     detector: SimPersonDetector
-    path_follower: ReactiveLocalPlanner
+    path_follower: PurePursuitLocalPlanner
     localizer: ScanMatchLocalizer
     mapper: EvidenceGridMapper
     planner: AStarPlanner = field(default_factory=AStarPlanner)
@@ -89,6 +89,10 @@ class Agent:
     last_person: Point2D | None = None  # последняя видимая позиция цели
     lost_ticks: int = 0
     explorer: SimExplorer | None = None  # авто-исследование (frontier-based)
+    drive_xy: Point2D | None = None      # детектор застревания в _drive
+    drive_stuck: int = 0
+    recover_ticks: int = 0               # идёт recovery-манёвр (отъезд+поворот)
+    recover_turn: float = 1.0
 
 
 class App:
@@ -128,8 +132,8 @@ class App:
                 world=self.world, robot_state=robot.state, person=self.person,
                 clock=robot.clock, max_range_m=6.0,
             ),
-            path_follower=ReactiveLocalPlanner(
-                robot_radius_m=RADIUS_M, max_linear_m_s=1.0, max_angular_rad_s=1.5, goal_tol_m=0.2
+            path_follower=PurePursuitLocalPlanner(
+                max_linear_m_s=1.0, max_angular_rad_s=1.5, goal_tol_m=0.2
             ),
             localizer=loc,
             mapper=EvidenceGridMapper(meta=self.meta),
@@ -187,7 +191,12 @@ class App:
         if agent.mode is RobotMode.CHARGING:
             self._charge_step(agent, pose, scan)
         elif agent.mode is RobotMode.NAVIGATING and agent.goal is not None:
-            if pose.point.distance_to(agent.goal.point) <= 0.25:
+            # «Доехал» — у самой цели ИЛИ у конца best-effort пути (если клик недостижим).
+            at_goal = pose.point.distance_to(agent.goal.point) <= 0.25
+            at_path_end = agent.path is not None and (
+                pose.point.distance_to(agent.path.waypoints[-1].point) <= 0.25
+            )
+            if at_goal or at_path_end:
                 agent.mode = RobotMode.IDLE
                 robot.motion.stop()
             else:
@@ -257,15 +266,38 @@ class App:
         return Pose2D(x_m=self.dock_approach.x_m, y_m=self.dock_approach.y_m, theta_rad=self.dock_heading)
 
     def _drive(self, agent: Agent, goal: Pose2D, scan: LidarScan) -> None:
+        robot = agent.robot
+        # Recovery-манёвр: если ранее застряли — отъезжаем назад с поворотом, чтобы выбраться.
+        if agent.recover_ticks > 0:
+            agent.recover_ticks -= 1
+            robot.motion.command(twist=Twist2D(linear_x_m_s=-0.35, angular_z_rad_s=agent.recover_turn))
+            return
+
+        # Детектор застревания: ехали ВПЕРЁД (не просто доворачивались), а сдвига нет.
+        pos = robot.state.pose().point
+        moving_cmd = abs(robot.state.last_cmd.linear_x_m_s) > 0.05
+        if moving_cmd and agent.drive_xy is not None and pos.distance_to(agent.drive_xy) < 0.004:
+            agent.drive_stuck += 1
+        else:
+            agent.drive_stuck = 0
+        agent.drive_xy = pos
+        if agent.drive_stuck > 25:  # ~застряли в углу
+            agent.drive_stuck = 0
+            agent.recover_ticks = 35
+            agent.recover_turn = -agent.recover_turn  # каждый раз в другую сторону
+            agent.path = None
+            return
+
         agent.replan_timer += 1
         if agent.path is None or agent.replan_timer >= REPLAN_EVERY:
             agent.replan_timer = 0
             self.plan(agent, goal)
         if agent.path is not None:
-            cmd = agent.path_follower.compute_command(pose=agent.robot.state.pose(), scan=scan)
-            agent.robot.motion.command(twist=cmd)
+            robot.motion.command(
+                twist=agent.path_follower.compute_command(pose=robot.state.pose(), scan=scan)
+            )
         else:
-            agent.robot.motion.stop()
+            robot.motion.stop()
 
     # --- ввод ---
     def on_click(self, sx: int, sy: int) -> None:
@@ -286,6 +318,7 @@ class App:
         agent.goal = Pose2D(x_m=p.x_m, y_m=p.y_m, theta_rad=0.0)
         agent.mode = RobotMode.NAVIGATING
         agent.path = None
+        agent.recover_ticks, agent.drive_stuck, agent.drive_xy = 0, 0, None  # сброс recovery
         ok = self.plan(agent, agent.goal)
         far = agent.path is not None and agent.path.waypoints[-1].point.distance_to(p) > 0.3
         self.status = (
@@ -312,6 +345,7 @@ class App:
             s = ag.robot.state
             s.x_m, s.y_m, s.theta_rad, s.battery_frac = x, y, 0.0, 1.0
             ag.mode, ag.goal, ag.path, ag.docking = RobotMode.IDLE, None, None, False
+            ag.recover_ticks, ag.drive_stuck, ag.drive_xy = 0, 0, None
             ag.robot.motion.stop()
         self.person.x_m, self.person.y_m = 4.0, 3.25
         self.status = "Сброс"
