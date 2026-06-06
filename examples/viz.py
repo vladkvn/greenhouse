@@ -11,6 +11,7 @@ keep-out зоны и второго робота (перепланировани
     ПКМ              — переместить цель-человека сюда
     1 / 2            — выбрать робота A / B
     F                — режим следования за человеком для выбранного робота
+    M                — режим построения карты с нуля (кликай точки — карта строится по лидару)
     G                — режим навигации к цели (по умолчанию)
     C                — отправить выбранного робота на зарядку
     Z                — нарисовать keep-out зону (два клика по углам)
@@ -41,11 +42,12 @@ from greenhouse.domain.geometry import Point2D, Pose2D, Twist2D
 from greenhouse.domain.grid import CellState, MapMeta, OccupancyGrid
 from greenhouse.navigation.keepout import InMemoryKeepoutRegistry, Zone, ZoneKind
 from greenhouse.navigation.localization import ScanMatchLocalizer
+from greenhouse.navigation.mapping import EvidenceGridMapper
 from greenhouse.navigation.planning import AStarPlanner, Path, PlanOk, ReactiveLocalPlanner
 from greenhouse.orchestration.modes import RobotMode
 from greenhouse.sensing.interfaces import LidarScan
 
-PX_PER_M = 70
+PX_PER_M = 100
 FPS = 60
 DT_S = 1.0 / FPS
 RADIUS_M = 0.25
@@ -76,6 +78,7 @@ class Agent:
     detector: SimPersonDetector
     path_follower: ReactiveLocalPlanner
     localizer: ScanMatchLocalizer
+    mapper: EvidenceGridMapper
     planner: AStarPlanner = field(default_factory=AStarPlanner)
     mode: RobotMode = RobotMode.IDLE
     goal: Pose2D | None = None
@@ -127,6 +130,7 @@ class App:
                 robot_radius_m=RADIUS_M, max_linear_m_s=1.0, max_angular_rad_s=1.5, goal_tol_m=0.2
             ),
             localizer=loc,
+            mapper=EvidenceGridMapper(meta=self.meta),
         )
 
     # --- координаты ---
@@ -186,6 +190,14 @@ class App:
                 self._drive(agent, agent.goal, scan)
         elif agent.mode is RobotMode.FOLLOWING:
             self._follow_step(agent, pose, scan)
+        elif agent.mode is RobotMode.MAPPING:
+            agent.mapper.ingest_scan(
+                scan=scan, pose_xytheta=(pose.x_m, pose.y_m, pose.theta_rad)
+            )  # строим карту из лучей
+            if agent.goal is not None and pose.point.distance_to(agent.goal.point) > 0.25:
+                self._drive(agent, agent.goal, scan)  # едем по кликнутым точкам, исследуя
+            else:
+                robot.motion.stop()
         else:
             robot.motion.stop()
 
@@ -269,7 +281,8 @@ class App:
             return
         agent = self.agents[self.selected]
         agent.goal = Pose2D(x_m=p.x_m, y_m=p.y_m, theta_rad=0.0)
-        agent.mode = RobotMode.NAVIGATING
+        if agent.mode is not RobotMode.MAPPING:  # в режиме картирования режим не меняем
+            agent.mode = RobotMode.NAVIGATING
         agent.path = None
         ok = self.plan(agent, agent.goal)
         far = agent.path is not None and agent.path.waypoints[-1].point.distance_to(p) > 0.3
@@ -357,6 +370,10 @@ class App:
             elif event.key == pygame.K_g:
                 a.mode, a.docking = RobotMode.IDLE, False
                 self.status = f"{a.name}: навигация (кликни цель)"
+            elif event.key == pygame.K_m:
+                a.mode, a.goal, a.path = RobotMode.MAPPING, None, None
+                a.mapper.begin_session()  # карта с нуля
+                self.status = f"{a.name}: картирование — кликай точки, карта строится"
             elif event.key == pygame.K_c:
                 a.mode, a.path, a.docking = RobotMode.CHARGING, None, False
                 a.goal = Pose2D(x_m=self.dock.x_m, y_m=self.dock.y_m, theta_rad=0.0)
@@ -381,6 +398,24 @@ class App:
                 self.reset()
         return True
 
+    def _blit_built_map(self, screen: pygame.Surface, agent: Agent) -> None:
+        """Нарисовать карту, построенную роботом: свободно/занято/неизвестно (фон)."""
+        screen.fill(COL_BG)
+        grid = agent.mapper.current_map()
+        res_px = max(1, int(self.meta.resolution_m * PX_PER_M + 0.999))
+        for row in range(self.meta.height_px):
+            for col in range(self.meta.width_px):
+                state = grid.at(row, col)
+                if state is CellState.FREE:
+                    color = COL_FREE
+                elif state is CellState.OCCUPIED:
+                    color = COL_OCC
+                else:
+                    continue  # UNKNOWN — оставляем фон
+                center = self.meta.cell_to_world(row, col)
+                sx, sy = self.to_screen(center.x_m, center.y_m)
+                screen.fill(color, (sx - res_px // 2, sy - res_px // 2, res_px, res_px))
+
     def _map_surface(self) -> pygame.Surface:
         surf = pygame.Surface((self.screen_w, self.screen_h))
         surf.fill(COL_BG)
@@ -397,7 +432,11 @@ class App:
 
     def draw(self, screen: pygame.Surface, map_surf: pygame.Surface,
              font: pygame.font.Font, small: pygame.font.Font) -> None:
-        screen.blit(map_surf, (0, 0))
+        mapping = next((a for a in self.agents if a.mode is RobotMode.MAPPING), None)
+        if mapping is not None:
+            self._blit_built_map(screen, mapping)  # показываем карту «как видит робот»
+        else:
+            screen.blit(map_surf, (0, 0))
 
         for z in self.keepout.zones():  # keep-out зоны
             pts = [self.to_screen(p.x_m, p.y_m) for p in z.polygon]
@@ -456,8 +495,8 @@ class App:
             screen.blit(small.render(f"{ag.name} {ag.mode.value}", True, ag.color), (bx, y0 + 28))
             pygame.draw.rect(screen, COL_DIM, (bx, y0 + 44, 100, 8), 1)
             pygame.draw.rect(screen, col, (bx, y0 + 44, int(100 * frac), 8))
-        hint = "ЛКМ цель | ПКМ человек | 1/2 робот | F след. | C заряд | Z зона | X стоп зон | L локал."
-        screen.blit(small.render(hint, True, COL_DIM), (320, y0 + 8))
+        hint = "ЛКМ цель | ПКМ чел | 1/2 робот | F след | M карта | C заряд | Z зона | X очист | L локал"
+        screen.blit(small.render(hint, True, COL_DIM), (330, y0 + 8))
 
 
 def _occupancy_cells(world: PolygonWorld, meta: MapMeta) -> list[CellState]:

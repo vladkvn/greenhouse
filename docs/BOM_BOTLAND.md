@@ -37,6 +37,35 @@
 - Драйвер моторов — если его ещё нет, нужен контроллер с энкодерным контуром (`MotionController`); подбирается под твои моторы (например RoboClaw/ODrive), но это отдельно.
 - Батарея/BMS — зависит от напряжения твоих моторов; подбирается под существующий привод.
 
+## Где Botland завышает и чем заменить
+
+Сравнение цен Botland с производителями/маркетплейсами (цены **ориентировочные**, EUR;
+часть собрана из сниппетов и агрегаторов, т.к. Botland отдаёт цену через JS — перепроверь
+на странице товара). Курс ~1 € = 4.30 zł.
+
+| Товар | Botland (€) | Дешевле где | Альтернатива | Переплата |
+|---|---|---|---|---|
+| JSN-SR04T (ультразвук) | ~13.7 | AliExpress ~3 € | [aliexpress](https://www.aliexpress.com/item/32863960886.html) | **высокая (×3–4)** |
+| Конвертер уровней 8-кан. (TXS0108E) | ~8–12 | AliExpress ~1–2 € | [aliexpress](https://www.aliexpress.com/item/32994869948.html) | **высокая (в разы)** |
+| ArduCam IMX708 USB | ~60–69 | ArduCam офиц. ~46 € | [arducam.com](https://www.arducam.com/12mp-imx708-usb-uvc-fixed-focus-camera-module-3.html) | средняя (~30%) |
+| Adafruit BNO085 IMU | ~31 | Adafruit $24.95 / Kiwi ~22–27 € | [adafruit](https://www.adafruit.com/product/4754), [kiwi-electronics](https://www.kiwi-electronics.com/en/adafruit-9-dof-orientation-imu-fusion-breakout-bno085-bno080-stemma-qt-qwiic-11273) | средняя (~15–30%) |
+| RPLIDAR A1M8-R6 | ~102 | DFRobot $99 / AliExpress ~$90–99 | [dfrobot](https://www.dfrobot.com/product-1125.html) | низкая |
+| Pololu D36V28F5 5V | 18.5 | Opencircuit ~17.4 € | [opencircuit](https://opencircuit.shop/product/5v-3.2a-step-down-voltage-regulator-d36v28f5) | низкая |
+
+**Главная переплата — на «мелочёвке»:**
+
+- **JSN-SR04T и конвертер уровней** — commodity-модули, на AliExpress дешевле в разы; для DIY качество достаточное, бери с запасом (часто продают пачками). Это основной кандидат на заказ из Китая.
+- **ArduCam и BNO085** — брендовые: дешевле у самого производителя (ArduCam, Adafruit) или у EU-дистрибьютора без таможни ([Kiwi Electronics](https://www.kiwi-electronics.com)). Экономия ~15–30%.
+
+**Брать на Botland ради удобства/гарантии/быстрой доставки по ЕС:** RPLIDAR A1 и Pololu
+D36V28F5 — разница с мировой ценой мала, а доставка из США/Китая её съедает.
+
+> ⚠️ **Jetson Orin Nano Super:** по данным проверки страница Botland могла уйти в
+> «снятые с продажи». Проверь наличие; если нет — бери у официальных партнёров
+> (Seeed Studio / NVIDIA-партнёры) около MSRP $249.
+
+---
+
 ## Привязка к коду
 
 Каждая позиция реализует интерфейс, у которого уже есть sim-двойник: лидар → `SimLidar`

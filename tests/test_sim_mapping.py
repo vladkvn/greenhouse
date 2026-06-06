@@ -107,6 +107,24 @@ def test_drive_through_world_builds_map_via_mapping_mode() -> None:
     assert _cell_at(grid, 5.0, 3.0) is CellState.FREE         # пройденный проход свободен
 
 
+def test_map_built_from_scratch_covers_room() -> None:
+    # Картирование «с нуля»: старт — всё неизвестно; после проезда большая часть карты известна.
+    world = empty_room(10.0, 6.0)
+    mapper = EvidenceGridMapper(meta=grid_meta_for_world(world))
+    robot = build_sim_robot(world=world, start_x_m=5.0, start_y_m=3.0, map_builder=mapper)
+    assert all(c is CellState.UNKNOWN for c in mapper.current_map().cells)  # карта пустая
+
+    robot.mode = RobotMode.MAPPING
+    robot.motion.command(twist=Twist2D(linear_x_m_s=0.5, angular_z_rad_s=0.4))  # едем по дуге
+    run(robot, ticks=120, dt_s=0.1)
+    grid = mapper.end_session()
+
+    known = sum(c is not CellState.UNKNOWN for c in grid.cells)
+    assert known > 0.5 * len(grid.cells)                 # бо́льшая часть карты разведана
+    assert _cell_at(grid, 10.05, 3.0) is CellState.OCCUPIED   # стена занята
+    assert _cell_at(grid, 5.0, 3.0) is CellState.FREE         # внутренность свободна
+
+
 def test_greenhouse_bed_edge_is_occupied() -> None:
     # В мире-теплице ближняя кромка грядки (препятствия) попадает в карту как занятая.
     world = greenhouse_rows_world()
