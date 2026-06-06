@@ -1,45 +1,48 @@
 # GreenHouse
 
-Монорепозиторий платформы **автономного мобильного робота**: ROS 2 на Raspberry Pi, контракты между onboard-софтом, mocks/симуляцией и cloud backend (FastAPI + MQTT, multi-robot). Сценарий — **работа внутри помещений**, 2D-навигация; прикладной контекст задаётся отдельно.
+Флот **автономных мобильных роботов** для перевозки грузов в теплице: следование за
+человеком, поездки на точку выгрузки и на зарядку, построение карты, объезд препятствий,
+локализация, планирование маршрута, закрытые зоны и деление узких проездов между роботами.
+
+**Стек:** Python. Ядро **не зависит от транспорта** — домен, интерфейсы и алгоритмы
+ничего не знают про ROS. Симуляция, ROS 2 / Nav2 и драйверы железа подключаются как
+адаптеры за одними и теми же `Protocol`-интерфейсами.
 
 ## Документы
 
-- [Архитектура](docs/ARCHITECTURE.md) — компоненты, MQTT, дорожная карта
-- [Принципы и playbook для разработчиков/агентов](AGENTS.md)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — слои, интерфейсы, режимы, keep-out, координация флота
+- [docs/ROADMAP.md](docs/ROADMAP.md) — план инкрементов
 
-## Структура монорепозитория
+## Структура
 
-| Пакет | Описание |
-|-------|-----------|
-| [packages/contracts](packages/contracts/README.md) | Общие `Protocol` и Pydantic DTO без ROS (`fleet-contracts`) |
-| [packages/robot](packages/robot/README.md) | ROS 2 workspace (адаптеры навигационного слоя и будущего кода) |
-| [packages/backend](packages/backend/README.md) | Будущий FastAPI-сервис |
-| [packages/sim](packages/sim/README.md) | **`fleet-sim`**: комнаты, mocks контрактов, `fleet-sim-demo`, окно **`fleet-sim-viz`** (matplotlib) |
-| `infra/` | Инфраструктура по мере появления (Compose, MQTT и др.) |
+```
+src/greenhouse/
+├── domain/         # geometry, grid, identifiers, errors — чистый домен
+├── sensing/        # интерфейсы датчиков (лидар, камера, одометрия, IMU)
+├── control/        # MotionController — приведение в движение
+├── navigation/     # mapping, localization, planning, keepout
+├── coordination/   # TrafficCoordinator — деление проездов
+├── orchestration/  # режимы работы и команды (FSM)
+└── runtime/        # Clock — абстракция времени
+```
 
-## Быстрый старт (контракты Python)
+Адаптеры (`adapters/sim`, `adapters/ros2`) добавляются отдельными инкрементами —
+см. roadmap. Сейчас зафиксированы **архитектура и интерфейсы** (Инкремент 0).
 
-Из корня репозитория:
+## Быстрый старт
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e "packages/contracts[dev]"
-ruff check packages/contracts/src
-python -m mypy packages/contracts/src
+pip install -e ".[dev]"
+
+python -c "import greenhouse; print(greenhouse.__version__)"
+ruff check src
+mypy
 ```
 
-## Быстрый старт (симулятор)
+## Принципы
 
-После установки контрактов:
-
-```bash
-pip install -e "packages/sim[viz]"
-fleet-sim-demo           # текст в терминале
-fleet-sim-viz            # окно: стены, лучи лидара, робот и цель
-```
-
-Подробнее: [packages/sim/README.md](packages/sim/README.md).
-## Намеренно не сделано
-
-Полная интеграция ROS 2/Gazebo Nav2, продакшен backend и infra Compose — развиваются отдельными шагами; в `fleet-sim` уже есть воспроизводимое Python-демо без брокера.
+Contract-first · ядро без ROS · заменяемые реализации за одним интерфейсом ·
+сначала симуляция · инкременты вертикальными срезами · типобезопасность на границах.
+Подробнее — в [ARCHITECTURE.md](docs/ARCHITECTURE.md).

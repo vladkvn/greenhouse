@@ -1,370 +1,309 @@
-# Архитектура платформы GreenHouse
+# Архитектура GreenHouse
 
-Документ описывает целевую архитектуру monorepo: onboard (Python + ROS 2 на Raspberry Pi), симуляцию/mocks, backend (FastAPI + PostgreSQL + MQTT) для **управления группой мобильных роботов**.
+Платформа для флота автономных мобильных роботов, перевозящих грузы в теплице.
+Документ описывает **целевую архитектуру с нуля**: слои, интерфейсы, режимы работы,
+keep-out зоны и координацию нескольких роботов.
 
-Подробнее о принципах разработки: [AGENTS.md](../AGENTS.md).
+> Стек: **Python**. Ядро **не зависит от транспорта** — домен, интерфейсы и алгоритмы
+> ничего не знают про ROS. ROS 2 / Nav2, реальные драйверы и сетевой обмен подключаются
+> позже как **адаптеры** за теми же интерфейсами, что и симуляция.
 
-## Принятые решения
+---
 
-| Область | Решение |
-|---------|---------|
-| Onboard | Python + ROS 2, Raspberry Pi 4/5 |
-| Среда | Indoor-помещения, 2D-навигация |
-| Датчики | Абстрактные интерфейсы; конкретные модели лидара/камеры подключаются адаптерами |
-| Следование | Computer vision + re-identification человека |
-| Движение | Абстрактный `MotionController`; реальная платформа позже |
-| Карты | Локально на роботе; синхронизация с backend — по контракту, реализация позже |
-| Backend | Новый Python FastAPI + PostgreSQL + MQTT, multi-robot |
-| Разработка | Mocks параллельно с кодом; Gazebo позже |
+## 1. Цели и возможности
 
-## Структура репозитория
+Робот в теплице должен уметь:
 
-```
-GreenHouse/
-├── AGENTS.md
-├── README.md
-├── docs/
-│   └── ARCHITECTURE.md          # этот файл
-├── packages/
-│   ├── contracts/
-│   ├── robot/
-│   ├── backend/
-│   └── sim/
-└── infra/                       # по мере появления (compose, mosquitto и т.д.)
-```
+| Возможность | Где живёт |
+|---|---|
+| Ехать за человеком, которому помогает | `orchestration` (режим Following) + `navigation`, `sensing` |
+| Ехать на точку выгрузки | `orchestration` (режим Navigating) + `navigation` |
+| Ехать на зарядку | `orchestration` (режим Charging) + `navigation` |
+| Строить карту окружения | `navigation.mapping` |
+| Понимать, где он находится | `navigation.localization` |
+| Строить маршрут до цели | `navigation.planning` |
+| Объезжать препятствия | `navigation.planning` (локальный слой) + `sensing` |
+| Помечать область как закрытую (keep-out) | `navigation.keepout` |
+| Делить узкие проезды между роботами | `coordination` |
 
-См. также README в каждом пакете и подмодуле.
+---
 
-## Диаграмма системы
+## 2. Принципы
 
-```mermaid
-flowchart TB
-  subgraph backend [Backend_FastAPI]
-    API[REST_API]
-    MQTTIn[MQTT_Ingest]
-    Registry[Robot_Registry]
-    CmdDispatch[Command_Dispatch]
-  end
+**Contract-first.** Граница каждого модуля — это интерфейс (`typing.Protocol`) и набор
+доменных типов (Pydantic). Реализации сменяемы: симуляция, mock, реальное железо —
+каждая удовлетворяет одному и тому же контракту.
 
-  subgraph robot [Onboard_ROS2_RPi]
-    Orch[Orchestration]
-    Perception[Perception]
-    Mapping[Mapping_SLAM]
-    Localize[Localization]
-    Nav[Navigation]
-    Follow[Follow_Person]
-    Motion[MotionController]
-    Telemetry[Telemetry_Bridge]
-  end
+**Ядро независимо от транспорта.** В `domain`, `navigation`, `orchestration`,
+`coordination` нет импортов `rclpy`, сети, файловой системы. Это делает их полностью
+тестируемыми в симуляции и переносимыми. Транспорт (ROS 2, MQTT) живёт только в адаптерах.
 
-  subgraph simPkg [Sim_Mocks]
-    MockLidar[MockLidar]
-    MockCam[MockCamera]
-    MockMotion[MockMotion]
-  end
+**Заменяемые реализации за одним интерфейсом.** Один и тот же `LidarSource` имеет
+реализацию `SimLidar` (сейчас) и `Ros2Lidar` (позже). Оркестратор не меняется при смене реализации.
 
-  Perception --> Mapping
-  Perception --> Follow
-  Mapping --> Localize
-  Localize --> Nav
-  Localize --> Follow
-  Nav --> Motion
-  Follow --> Motion
-  Orch --> Mapping
-  Orch --> Nav
-  Orch --> Follow
-  Telemetry --> MQTTIn
-  CmdDispatch --> Telemetry
-  API --> Registry
+**Сначала симуляция.** У каждого значимого интерфейса появляется sim-реализация
+до или параллельно железу. Разработка не блокируется отсутствием датчиков.
 
-  MockLidar -.-> Perception
-  MockCam -.-> Perception
-  MockMotion -.-> Motion
-```
+**Инкремент за инкрементом, вертикальными срезами.** Один шаг = один модуль или один
+понятный слой + его проверка. Не «вся навигация и весь backend в одном куске».
 
-## UML-модели модулей
+**Типобезопасность на границах.** На стыках модулей — `Protocol` + валидируемые
+Pydantic-модели, а не «сырые словари». Никаких небезопасных `cast`/`Any`.
 
-Ниже — **структурный** взгляд (пакеты, контракты, развёртывание). **Поведенческая** топология потоков данных между подсистемами — в разделе **«Диаграмма системы»** выше; машина режимов — в разделе **«Режимы работы робота»** ниже.
+---
 
-### Пакеты и зависимости от контрактов
+## 3. Слои
 
-Стереотип **`<<interface>>`** соответствует `Protocol` в Python ([`fleet_contracts`](../packages/contracts/src/fleet_contracts/)). Связь **`..>`** — зависимость (*use*); **`..|>`** — реализация интерфейса (*implements*). Пунктир от **Sim** — подстановка реализаций при разработке и тестах.
-
-```mermaid
-classDiagram
-  namespace fleet_contracts {
-    class LidarSource {
-      <<interface>>
-    }
-    class CameraSource {
-      <<interface>>
-    }
-    class MapBuilder {
-      <<interface>>
-    }
-    class Localizer {
-      <<interface>>
-    }
-    class GoalNavigator {
-      <<interface>>
-    }
-    class FollowController {
-      <<interface>>
-    }
-    class MotionController {
-      <<interface>>
-    }
-    class MissionHandler {
-      <<interface>>
-    }
-    class RobotBehavior {
-      <<interface>>
-    }
-    class TelemetryPublisher {
-      <<interface>>
-    }
-    class CommandSubscriber {
-      <<interface>>
-    }
-    class MessagingDTOs {
-      <<DTO>>
-    }
-  }
-
-  namespace robot_onboard {
-    class Orchestration
-    class PerceptionAdapters
-    class MappingSubsystem
-    class LocalizationSubsystem
-    class NavigationSubsystem
-    class FollowSubsystem
-    class MotionAdapter
-    class TelemetryBridge
-  }
-
-  namespace backend {
-    class RestAPI
-    class MqttInbound
-    class MqttCommands
-    class RobotsRegistry
-  }
-
-  namespace sim {
-    class Mocks
-  }
-
-  PerceptionAdapters ..|> LidarSource : implements
-  PerceptionAdapters ..|> CameraSource : implements
-  MappingSubsystem ..> MapBuilder : use
-  LocalizationSubsystem ..> Localizer : use
-  NavigationSubsystem ..> GoalNavigator : use
-  FollowSubsystem ..> FollowController : use
-  MotionAdapter ..|> MotionController : implements
-
-  Orchestration ..|> MissionHandler : implements
-  Orchestration ..|> RobotBehavior : implements
-  Orchestration ..> MapBuilder : use
-  Orchestration ..> GoalNavigator : use
-  Orchestration ..> FollowController : use
-  Orchestration ..> MotionController : use
-  Orchestration ..> Localizer : use
-
-  TelemetryBridge ..> TelemetryPublisher : use
-  TelemetryBridge ..> CommandSubscriber : use
-  TelemetryBridge ..> MessagingDTOs : use
-  TelemetryBridge ..> Orchestration : dispatches_to
-
-  MqttInbound ..> MessagingDTOs : validates
-  MqttCommands ..> MessagingDTOs : emits
-
-  RestAPI --> RobotsRegistry
-  RestAPI --> MqttCommands
-
-  Mocks ..|> LidarSource : implements
-  Mocks ..|> CameraSource : implements
-  Mocks ..|> MotionController : implements
-```
-
-**Кратко:** оркестратор реализует `MissionHandler` и `RobotBehavior` и управляет режимами, дергая остальные подсистемы только через интерфейсы из `fleet_contracts`. Входящие команды попадают в оркестратор через связку `TelemetryBridge`/`CommandSubscriber` и доменную модель `fleet_contracts.messaging`. Backend сериализует и валидирует тот же набор DTO (например `TelemetryEnvelope`, дискриминированные полезные нагрузки команд), без привязки к ROS.
-
-### Развёртывание (упрощённо)
+Три прикладных слоя из задания плюс три опорных.
 
 ```mermaid
 flowchart TB
-  subgraph dev [Dev_host]
-    SIM["«development» Sim_mocks"]
+  subgraph orchestration["Оркестрация — что делать сейчас"]
+    ORCH["Mission FSM<br/>(Idle / Mapping / Navigating / Following / Charging)"]
   end
-  subgraph onboard_deploy [Onboard]
-    RPi["«device» Raspberry_Pi ROS2_runtime"]
-  end
-  subgraph cloud [Backend_host]
-    BE["«component» FastAPI"]
-    DB[("«device» PostgreSQL")]
-  end
-  Broker["«node» Mosquitto_MQTT"]
 
-  RPi --> Broker
-  Broker --> BE
-  BE --> DB
-  SIM -. "implements same Protocols" .-> RPi
+  subgraph navigation["Навигация — куда и как ехать"]
+    MAP["mapping<br/>построение карты"]
+    LOC["localization<br/>где я на карте"]
+    PLAN["planning<br/>маршрут + объезд"]
+    KEEP["keepout<br/>закрытые зоны"]
+  end
+
+  subgraph coordination["Координация — флот"]
+    COORD["traffic coordinator<br/>деление проездов"]
+  end
+
+  subgraph sensing["Восприятие — что вокруг"]
+    LID["lidar"]
+    CAM["camera"]
+    ODO["odometry / imu"]
+  end
+
+  subgraph control["Управление — приведение в движение"]
+    MOT["MotionController<br/>(скорости → колёса)"]
+  end
+
+  sensing --> navigation
+  navigation --> ORCH
+  COORD --> ORCH
+  ORCH --> PLAN
+  PLAN --> control
+  ORCH --> control
+  KEEP --> PLAN
+  MAP --> LOC
+  LOC --> PLAN
+
+  classDef core fill:#1f6feb22,stroke:#1f6feb;
 ```
 
-На этапе разработки **Sim** подставляет реализации контрактов вместо реальных нод; в проде обмен «робот ↔ облако» идёт через брокер по префиксу `fleet/robots/{robot_id}/…` (описано в разделе **MQTT: дерево топиков** ниже).
+- **Восприятие (`sensing`)** — поставляет «сырые» наблюдения: скан лидара, кадр камеры,
+  одометрию, IMU. Только чтение датчиков, без интерпретации.
+- **Навигация (`navigation`)** — превращает наблюдения в карту, позу, маршрут и команды
+  объезда. Содержит keep-out зоны.
+- **Управление (`control`)** — единственный слой, который физически двигает робота:
+  принимает желаемую скорость (`Twist2D`) и доводит её до привода (или до симулятора).
+- **Координация (`coordination`)** — межроботный слой: кто и когда занимает проезд.
+- **Оркестрация (`orchestration`)** — конечный автомат режимов; дёргает остальные слои
+  только через их интерфейсы.
+- **Runtime (`runtime`)** — опорные абстракции (часы/таймер), чтобы алгоритмы не звали
+  `time.time()` напрямую и были детерминированно тестируемы.
 
-## Режимы работы робота
+### Правило зависимостей
 
-Оркестратор — единая точка переключения режимов; модули общаются через контракты, а не жёсткие связи между пакетами.
+Зависимости направлены **внутрь**, к домену. `domain` не зависит ни от кого.
+Слои зависят от `domain` и от интерфейсов соседей — **не** от их реализаций.
+ROS 2 и сеть зависят от ядра, но ядро о них не знает.
+
+```mermaid
+flowchart LR
+  ADAPT["adapters<br/>(sim / ROS2 / drivers)"] --> CORE["ядро<br/>(domain + интерфейсы + алгоритмы)"]
+  ADAPT -.реализует.-> IFACE["Protocol-интерфейсы"]
+  CORE --- IFACE
+```
+
+---
+
+## 4. Каталог модулей и интерфейсов
+
+| Модуль | Ключевые типы и интерфейсы | Назначение |
+|---|---|---|
+| `domain/geometry` | `Point2D`, `Pose2D`, `Twist2D` | Планарные примитивы |
+| `domain/grid` | `CellState`, `MapMeta`, `OccupancyGrid` | Сеточная карта занятости |
+| `domain/identifiers` | `RobotId`, `ZoneId`, `MissionId`, `SegmentId` | Стабильные идентификаторы |
+| `domain/errors` | `LocalizationLost`, `PlanningFailed`, … | Доменные ошибки |
+| `sensing` | `LidarScan` · `LidarSource`; `CameraFrame` · `CameraSource`; `Odometry` · `OdometrySource`; `ImuSample` · `ImuSource` | Чтение датчиков |
+| `control` | `MotionLimits` · `MotionController` | Приведение в движение |
+| `navigation/mapping` | `MapBuilder`, `MapStore` | SLAM-сессия, хранение карт |
+| `navigation/localization` | `PoseEstimate` · `Localizer` | Оценка позы на карте |
+| `navigation/planning` | `Path` · `GlobalPlanner`, `LocalPlanner`, `GoalNavigator` | Маршрут + объезд препятствий |
+| `navigation/keepout` | `Zone`, `ZoneKind` · `KeepoutRegistry` | Закрытые/медленные зоны |
+| `coordination` | `Reservation` · `TrafficCoordinator` | Деление проездов флотом |
+| `orchestration` | `RobotMode` · `MissionHandler`, `Behavior`, `RobotContext` | FSM режимов |
+| `runtime` | `Clock` | Абстракция времени |
+
+Полные сигнатуры — в коде `src/greenhouse/`. Ниже — поведенческие модели.
+
+---
+
+## 5. Режимы работы робота
+
+Оркестратор — единственная точка переключения режимов. Переходы инициируются командами
+оператора/человека или событиями (цель достигнута, цель потеряна, низкий заряд).
 
 ```mermaid
 stateDiagram-v2
   [*] --> Idle
   Idle --> Mapping: start_mapping
   Mapping --> Idle: stop_mapping
-  Idle --> Navigating: go_to_point
-  Navigating --> Idle: goal_reached_or_cancel
-  Idle --> Following: follow_person
-  Following --> Idle: stop_follow_or_lost
+
+  Idle --> Navigating: go_to(point)
+  Navigating --> Idle: goal_reached / cancel
+
+  Idle --> Following: follow(person)
+  Following --> Idle: stop / target_lost
+
+  Navigating --> Charging: battery_low
+  Idle --> Charging: battery_low / dock
+  Charging --> Idle: charged
+
   Navigating --> Idle: emergency_stop
   Following --> Idle: emergency_stop
+  Mapping --> Idle: emergency_stop
 ```
 
-## Модули onboard (`packages/robot/`)
+**Безопасность.** Потеря локализации или потеря цели в `Following` — это переход в
+безопасное состояние (остановка), а не «ехать вслепую». Эти переходы описаны в контрактах
+оркестрации и команд.
 
-Детали: README в каждой папке модуля.
+---
 
-| Модуль | Контракты (`contracts`) | Роль в ROS 2 | Реализация (план) |
-|--------|-------------------------|--------------|-------------------|
-| `perception/` | `LidarSource`, `CameraSource`, `ImuSource` | Адаптеры сенсоров | Mock → драйверы |
-| `mapping/` | `MapBuilder`, `MapStore` | SLAM | `slam_toolbox` adapter |
-| `localization/` | `Localizer` | Позиция на карте | Nav2 AMCL adapter |
-| `navigation/` | `GoalNavigator`, `PathPlanner` | Достижение целей | Nav2 actions |
-| `follow/` | `FollowController`, `PersonDetector`, `PersonReIdentifier` | Vision + следование | OpenCV / ONNX pipeline |
-| `motion/` | `MotionController` | Движение | Mock → платформа |
-| `orchestration/` | `RobotBehavior`, `MissionHandler` | Конечный автомат режимов | Отдельная нода |
-| `telemetry/` | `TelemetryPublisher`, `CommandSubscriber` | Связь с backend | MQTT + при необходимости REST |
+## 6. Закрытые зоны (keep-out)
 
-## Модули backend (`packages/backend/`)
+Зона — это именованная область с типом поведения:
 
-| Модуль | Назначение |
-|--------|------------|
-| `robots/` | Регистрация, heartbeat, online/offline |
-| `telemetry/` | Приём MQTT телеметрии |
-| `commands/` | Публикация команд на роботов |
-| `maps/` | Контракт синхронизации карт (реализация позже) |
+| `ZoneKind` | Эффект на планирование |
+|---|---|
+| `KEEPOUT` | Полностью непроезжая: ячейки внутри считаются занятыми |
+| `SLOW` | Проезжая, но с ограничением скорости (приоритет полки/людей) |
+| `PREFERRED` | Поощряемая (например, основной проезд) — снижает стоимость пути |
 
-## Контракты (`packages/contracts/`)
+Зоны задаются как полигоны в системе координат карты и **растеризуются** в дополнительный
+слой поверх карты занятости. И глобальный планировщик, и проверка коллизий используют
+**одну и ту же** итоговую сетку занятости (карта ∪ keep-out), чтобы план и реальное
+движение согласовывались.
 
-- **Protocol**: интерфейсы сенсоров, навигации, движения, телеметрии — см. код пакета.
-- **Pydantic-модели**: payload команд, телеметрии, состояние робота.
-- **MQTT**: префикс и дерево топиков — см. `fleet_contracts.messaging`; схемы JSON совпадают с DTO.
-- **Robot id**: строка без пробелов (`^[a-zA-Z0-9_-]+$`); задаётся при регистрации.
+```mermaid
+flowchart LR
+  OCC["OccupancyGrid<br/>(построенная карта)"] --> MERGE(("∪"))
+  ZONES["KeepoutRegistry<br/>(полигоны зон)"] --> RAST["растеризация в слой"] --> MERGE
+  MERGE --> PLANGRID["рабочая сетка планировщика"]
+  PLANGRID --> PLAN["GlobalPlanner / проверка коллизий"]
+```
 
-Robot и backend импортируют типы только из `contracts`; ROS остаётся в адаптерах `packages/robot`.
+Зоны редактируются во время работы (оператор отметил область) — планировщик перечитывает
+слой при следующем перепланировании.
 
-## ROS 2: планируемый граф (этап интеграции)
+---
 
-Эти топики именованы условно; финальное дерево задаётся в launch-файлах и README модулей.
+## 7. Координация нескольких роботов
 
-| Тип | Имя (пример) | Назначение |
-|-----|--------------|------------|
-| Подписка | `/scan` | Лидар (sensor_msgs/LaserScan в адаптере) |
-| Подписка | `/camera/image_raw` | Камера (в адаптере преобразуется в доменную модель) |
-| Pub/Sub | `/map`, `/tf` | Карта и преобразования (через стандартные пакеты) |
-| Публикация | `/cmd_vel` | Команды скорости (через `MotionController` adapter) |
-| Публикация / параметр | `robot_mode` (топик или latched msg — уточнить при оркестрации) | Текущий режим |
+Проезды в теплице узкие — два робота не разъедутся. Координация строится на
+**резервировании сегментов**, а не на «каждый сам по себе».
 
-## MQTT: дерево топиков (контракт)
-
-Базовый префикс: `fleet/robots/{robot_id}`.
-
-| Топик | Направление | Описание |
-|-------|-------------|----------|
-| `.../telemetry` | Robot → Backend | Pose, режим, батарея, ошибки (JSON по схеме `TelemetryEnvelope`) |
-| `.../commands` | Backend → Robot | Команды `go_to`, `follow_person`, `stop`, `start_mapping` и т.д. |
-| `.../commands/ack` | Robot → Backend | Подтверждение/отказ (JSON по схеме `CommandAck`) |
-
-Подробности полей: исходники в [`../packages/contracts/src/fleet_contracts/`](../packages/contracts/src/fleet_contracts/) (начните с `messaging.py`).
-
-## REST API (контракт без реализации)
-
-Планируются эндпоинты для операторского управления флотом (точный OpenAPI добавится с `packages/backend`):
-
-| Метод | Путь | Назначение |
-|-------|------|------------|
-| `GET` | `/robots` | Список зарегистрированных роботов и статус |
-| `GET` | `/robots/{robot_id}` | Детали одного робота |
-| `POST` | `/robots/{robot_id}/commands` | Отправить команду (дулируется в MQTT) |
-| `GET` | `/robots/{robot_id}/telemetry/latest` | Последнее сохранённое состояние (из БД) |
-
-## Взаимодействие robot ↔ backend
+Карта проездов делится на **сегменты** (участки между перекрёстками/расширениями).
+Прежде чем въехать в сегмент, робот запрашивает резерв у `TrafficCoordinator`.
 
 ```mermaid
 sequenceDiagram
-  participant Robot as Robot_Telemetry
-  participant MQTT as Mosquitto
-  participant BE as FastAPI
-  participant DB as PostgreSQL
+  participant R1 as Робот A
+  participant TC as TrafficCoordinator
+  participant R2 as Робот B
 
-  Robot->>MQTT: publish telemetry
-  MQTT->>BE: ingest
-  BE->>DB: persist state
-
-  BE->>MQTT: publish command
-  MQTT->>Robot: command subscriber
-  Robot->>Robot: orchestration
-  Robot->>MQTT: publish command_ack
+  R1->>TC: request_reservation(segment=S7)
+  TC-->>R1: granted (token)
+  R2->>TC: request_reservation(segment=S7)
+  TC-->>R2: denied (занят R1, ETA освобождения)
+  Note over R2: ждёт у входа в сегмент<br/>или планирует обход
+  R1->>TC: release(S7)
+  TC-->>R2: granted (token)
 ```
 
-## Mocks и симуляция (`packages/sim/`)
+Свойства слоя:
 
-Исполняемый пакет **`fleet-sim`** (см. [`packages/sim/README.md`](../packages/sim/README.md)): топология по умолчанию — **длинные параллельные ряды парника** (`greenhouse_parallel_rows_world`: проходы вдоль +X, между ними полосы-преграды с дверными метрами проёмов под одной высотой; компактная схема из трёх комнат остаётся как `three_rooms_line_world`); лидара через рейкаст общих **`PolygonWorld.walls`**; локализация «истины» (`SimTruthLocalizer`); шаг робота против **`walls`** с дисковым footprint (`SimState.robot_inscribed_radius_m`, [`footprint`](../packages/sim/src/fleet_sim/footprint.py)); следование к цели; демо `fleet-sim-demo` exploration/follow без ROS. В follow — **A* по сетке** с теми же **`walls`**; **`fleet-sim-viz`** рисуется фиолетовым маршрутом поверх топологии.
+- **Взаимное исключение** на занятых сегментах — нет лобовых встреч в узких проездах.
+- **Предотвращение тупиков (deadlock)** — резервы запрашиваются в согласованном порядке;
+  при невозможности получить путь целиком робот ждёт у входа, а не застревает в середине.
+- **Точки разъезда** — широкие участки (`PASSING_PLACE`) не требуют эксклюзива.
+- Координатор сначала живёт как in-process сервис в симуляции (несколько роботов в одном
+  процессе), затем выносится за сетевой адаптер (MQTT/брокер) без смены интерфейса.
 
-Имена реализаций (можно подставлять вместо железа и ROS):
+---
 
-| Реализация | Интерфейс | Назначение |
-|------------|-----------|------------|
-| `SimLidarSource` | `LidarSource` | Скан по аналитическим стенам комнат |
-| `SimCameraSource` | `CameraSource` | Синтетический кадр-заглушка под детектор |
-| `SimMotionController` | `MotionController` | Интеграция команд скорости в сим-состояние |
-| `SimTruthLocalizer` | `Localizer` | Поза робота как у симулятора (без SLAM) |
-| `SimPersonDetector` | `PersonDetector` | Видимость цели в упрощённом FOV |
-
-Далее: Gazebo и мост к тем же контрактам; unit-тесты рейкаста.
-
-## Заметки по indoor и RPi
-
-- **SLAM:** ориентация на 2D лидар и `slam_toolbox` или аналог в ROS 2.
-- **Nav2:** планирование и контроль для indoor (на роботе: polygon footprint и costmap inflation/clearing; в `fleet-sim` — disk против тех же **`PolygonWorld.walls`**, что лидарайкаст, см. README sim).
-- **Follow:** детекция + re-ID; не смешивать с классической `NavigateToPose` без явного режима оркестратора.
-- **Вычисления:** на RPi re-ID возможен только с лёгкими моделями; интерфейс `PersonDetector` позволит заменить backend детекции (например, на Jetson) без смены оркестратора.
-
-## Roadmap разработки
+## 8. Поток данных (один цикл управления)
 
 ```mermaid
-gantt
-  title Development_Phases
-  dateFormat YYYY-MM-DD
-  section Phase1_Docs
-    Principles_and_Architecture :p1, 2026-05-23, 3d
-  section Phase2_Contracts
-    Protocols_and_Mocks :p2, after p1, 5d
-  section Phase3_RobotCore
-    Orchestration_Motion_Mock :p3, after p2, 7d
-  section Phase4_Perception
-    Lidar_Camera_Adapters :p4, after p3, 7d
-  section Phase5_Nav
-    SLAM_Nav2_Integration :p5, after p4, 10d
-  section Phase6_Follow
-    Vision_ReID_Follow :p6, after p5, 10d
-  section Phase7_Backend
-    FastAPI_MQTT_MultiRobot :p7, after p2, 14d
-  section Phase8_Sim
-    Gazebo_Integration :p8, after p5, 7d
+flowchart LR
+  S["sensing<br/>scan, odom, frame"] --> L["localization<br/>→ Pose2D"]
+  S --> M["mapping<br/>→ OccupancyGrid"]
+  M --> P["planning"]
+  L --> P
+  K["keepout"] --> P
+  C["coordination<br/>резерв сегмента"] --> P
+  P --> CMD["Twist2D"]
+  CMD --> CTRL["control<br/>MotionController"]
+  CTRL --> ROBOT["робот / симулятор"]
+  ROBOT --> S
 ```
 
-## Ссылки на модули
+Оркестратор выбирает **цель** этого цикла в зависимости от режима (точка выгрузки,
+поза человека, док зарядки), планировщик строит путь и локальные команды, управление их исполняет.
 
-- [contracts](../packages/contracts/README.md)
-- [robot](../packages/robot/README.md)
-- [backend](../packages/backend/README.md)
-- [sim](../packages/sim/README.md)
+---
+
+## 9. Эволюция развёртывания
+
+Один и тот же набор интерфейсов проходит через три стадии — меняются только адаптеры.
+
+```mermaid
+flowchart TB
+  subgraph S1["Этап 1 — симуляция (сейчас)"]
+    SIMCORE["ядро"] --- SIMADAPT["Sim* реализации<br/>(лидар-рейкаст, mock-привод, truth-поза)"]
+  end
+  subgraph S2["Этап 2 — ROS 2 на стенде"]
+    ROSCORE["то же ядро"] --- ROSADAPT["ROS2-адаптеры<br/>(/scan, /cmd_vel, Nav2, slam_toolbox)"]
+  end
+  subgraph S3["Этап 3 — железо + флот"]
+    HWCORE["то же ядро"] --- HWADAPT["драйверы датчиков/привода<br/>+ сетевой координатор"]
+  end
+  S1 --> S2 --> S3
+```
+
+Ключ переноса: **планирование и проверка коллизий используют единую модель занятости**
+(габарит робота + карта + зоны). В симуляции это диск против сегментных стен; в Nav2 —
+polygon footprint + costmap-слои. Геометрия одна — поведение переносится предсказуемо.
+
+---
+
+## 10. Структура репозитория
+
+```
+GreenHouse/
+├── README.md
+├── pyproject.toml
+├── docs/
+│   ├── ARCHITECTURE.md      # этот файл
+│   └── ROADMAP.md           # план инкрементов
+└── src/greenhouse/
+    ├── domain/              # geometry, grid, identifiers, errors
+    ├── sensing/             # интерфейсы датчиков
+    ├── control/             # MotionController
+    ├── navigation/          # mapping, localization, planning, keepout
+    ├── coordination/        # TrafficCoordinator
+    ├── orchestration/       # режимы и MissionHandler
+    └── runtime/             # Clock
+```
+
+Адаптеры (`adapters/sim`, `adapters/ros2`) добавляются отдельными инкрементами и здесь
+ещё не созданы намеренно — сначала фиксируем ядро и интерфейсы.
+
+См. также [ROADMAP.md](ROADMAP.md).
