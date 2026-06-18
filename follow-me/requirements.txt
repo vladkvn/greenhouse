@@ -1,0 +1,17 @@
+# Follow-me perception dependencies.
+#
+# NOTE for Jetson Orin Nano (JetPack 6.x):
+#   - Do NOT install torch/torchvision from PyPI. Use the NVIDIA Jetson wheels that
+#     match your JetPack/CUDA: https://developer.download.nvidia.com/compute/redist/jp/
+#     (Ultralytics will pull them in automatically only if absent -- install them first.)
+#   - TensorRT ships with JetPack; do not pip install it.
+#   - opencv: JetPack ships a build; if you pip-install opencv-python it will be CPU-only.
+
+ultralytics>=8.3.0
+numpy>=1.24
+rplidar-roboticia>=1.1.0
+pyserial>=3.5
+
+# Dev/test only (not needed on the robot):
+pytest>=8.0
+opencv-python>=4.8 ; platform_machine != "aarch64"

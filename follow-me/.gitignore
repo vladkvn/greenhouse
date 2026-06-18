@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtualenvs (created on the Jetson with --system-site-packages)
+.venv/
+venv/
+
+# IDE
+.idea/
+
+# TensorRT engine — device/JetPack-specific build artifact, NOT portable.
+# Rebuild on the Jetson:  python scripts/export_yolo_tensorrt.py
+models/*.engine
+# Ultralytics weights cache
+*.pt
