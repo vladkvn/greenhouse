@@ -30,11 +30,14 @@ def _import_rplidar():
 class LidarThread(threading.Thread):
     """Continuously reads scans from an RPLiDAR A1 into a shared 360-bin array."""
 
-    def __init__(self, port: str, baud: int, max_range_m: float):
+    def __init__(self, port: str, baud: int, max_range_m: float,
+                 mount_offset_deg: int = 0):
         super().__init__(daemon=True)
         self._port = port
         self._baud = baud
         self._max_range_m = max_range_m
+        # Разворот скана: бин = (физ.угол + offset) % 360, чтобы бин 0 = перёд робота.
+        self._mount_offset = int(round(mount_offset_deg)) % 360
         self._lidar = None  # set in run() once rplidar is imported
         self._exc_types: tuple[type[Exception], ...] = (OSError,)
         self._lock = threading.Lock()
@@ -67,8 +70,7 @@ class LidarThread(threading.Thread):
         with self._lock:
             return self._bins.copy()
 
-    def distance_at(self, angle_deg: float, window_deg: float) -> float | None:
-        """Median distance (metres) of returns within +/- window_deg/2 of angle_deg."""
+    def _window_vals(self, angle_deg: float, window_deg: float) -> np.ndarray:
         half = window_deg / 2.0
         center = angle_deg % 360.0
         # Build the integer degree indices inside the window, wrapping around 360.
@@ -77,10 +79,26 @@ class LidarThread(threading.Thread):
         idx = np.arange(lo, hi + 1) % 360
         with self._lock:
             vals = self._bins[idx]
-        vals = vals[~np.isnan(vals)]
+        return vals[~np.isnan(vals)]
+
+    def distance_at(self, angle_deg: float, window_deg: float) -> float | None:
+        """Median distance (metres) of returns within +/- window_deg/2 of angle_deg."""
+        vals = self._window_vals(angle_deg, window_deg)
         if vals.size == 0:
             return None
         return float(np.median(vals))
+
+    def nearest_at(self, angle_deg: float, window_deg: float) -> float | None:
+        """Nearest return (metres) within +/- window_deg/2 of angle_deg.
+
+        For 'distance to the person' this beats the median: the person is the
+        closest object along their bearing, while a wall behind them sits farther.
+        A wider window tolerates the camera<->LiDAR parallax at range.
+        """
+        vals = self._window_vals(angle_deg, window_deg)
+        if vals.size == 0:
+            return None
+        return float(np.min(vals))
 
     def wait_until_ready(self, timeout: float = 10.0) -> bool:
         return self._connected.wait(timeout)
@@ -104,7 +122,7 @@ class LidarThread(threading.Thread):
             d_m = dist_mm / 1000.0
             if d_m <= 0.0 or d_m > self._max_range_m:
                 continue
-            new_bins[int(round(angle)) % 360] = d_m
+            new_bins[(int(round(angle)) + self._mount_offset) % 360] = d_m
         with self._lock:
             self._bins = new_bins
 

@@ -1,47 +1,43 @@
-"""Motor control: turn a follow-me target into ESP32 drive commands.
+"""Motor control over USB-SERIAL to the ESP32 (был UDP). Протокол: 'L R\\n' / 'STOP\\n'.
 
-The ESP32 (separate WiFi module, static IP) drives 4 DC motors via one L298 in
-skid-steer (left pair = channel A, right pair = channel B). It listens on UDP and
-speaks a tiny text protocol:
+ESP подключён к Jetson по USB (CH340, /dev/ttyUSB0). Прошивка serial читает строки
+"L R\\n"/"STOP\\n" @115200, failsafe 0.5с. compute_drive не менялся — только транспорт.
 
-    "L R"   left/right side speed, integers -255..255   (e.g. "180 140")
-    "STOP"  immediate stop
-
-The ESP32 has its own failsafe: no command for >0.5 s -> motors off. So we send a
-command (drive or stop) every control tick to keep the robot alive only while we
-intend it to move.
-
-Control law (open-loop, no encoders):
-    target is None .............. stop (nobody to follow)
-    distance <= stop_distance ... stop (reached the person / obstacle)
-    otherwise ................... drive forward, steering toward the person's bearing,
-                                  slowing down as we approach stop_distance.
+IMU (BNO085) к ESP НЕ относится — он подключён напрямую к Jetson по I2C, см. imu.py.
+ESP теперь чисто контроллер моторов.
 """
 
 from __future__ import annotations
 
-import socket
+import serial
 
 from .config import FollowMeConfig
 from .fusion import PersonTrack
 
 
 class Esp32Motor:
-    """UDP link to the ESP32 motor module. Protocol: 'L R' / 'STOP'."""
+    """USB-serial линк к ESP32. Пишет 'L R\\n'/'STOP\\n', 115200."""
 
-    def __init__(self, ip: str, port: int):
-        self._addr = (ip, port)
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    def __init__(self, ip=None, port=None, *, serial_port: str = "/dev/ttyUSB0",
+                 baud: int = 115200):
+        # ip/port оставлены для совместимости со старым UDP-вызовом Esp32Motor(ip, port) — игнор.
+        self._s = serial.Serial()
+        self._s.port = serial_port
+        self._s.baudrate = baud
+        self._s.timeout = 0.2
+        self._s.dtr = False   # НЕ сбрасывать ESP при открытии порта
+        self._s.rts = False
+        self._s.open()
 
     def drive(self, left: int, right: int) -> None:
-        self._sock.sendto(f"{int(left)} {int(right)}".encode(), self._addr)
+        self._s.write(f"{int(left)} {int(right)}\n".encode())
 
     def stop(self) -> None:
-        self._sock.sendto(b"STOP", self._addr)
+        self._s.write(b"STOP\n")
 
     def close(self) -> None:
         try:
-            self._sock.close()
+            self._s.close()
         except OSError:
             pass
 

@@ -44,7 +44,7 @@ def fuse(
         lidar_angle = camera_angle_to_lidar_angle(
             cam_angle, cfg.cam_to_lidar_offset_deg, cfg.lidar_flip
         )
-        distance = lidar.distance_at(lidar_angle, cfg.fusion_window_deg)
+        distance = lidar.nearest_at(lidar_angle, cfg.fusion_window_deg)
         tracks.append(PersonTrack(det, cam_angle, lidar_angle, distance))
     return tracks
 

@@ -67,6 +67,7 @@ class Visualizer:
         scan: np.ndarray,
         target: PersonTrack | None,
         fps: float,
+        cmd: tuple[int, int, str] | None = None,
     ) -> np.ndarray:
         cam_panel = self._draw_camera(frame.copy(), tracks, target)
         lidar_panel = self._draw_lidar(scan, tracks, target)
@@ -79,11 +80,27 @@ class Visualizer:
                 lidar_panel, (int(lidar_panel.shape[1] * scale), h)
             )
         canvas = np.hstack([cam_panel, lidar_panel])
-        cv2.putText(
-            canvas, f"{fps:4.1f} FPS", (10, 28),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.8, _WHITE, 2, cv2.LINE_AA,
-        )
+        self._draw_command_banner(canvas, cmd, fps)
         return canvas
+
+    @staticmethod
+    def _draw_command_banner(canvas, cmd, fps) -> None:
+        """Top banner: the motor command (so the console isn't needed)."""
+        w = canvas.shape[1]
+        cv2.rectangle(canvas, (0, 0), (w, 48), (20, 20, 20), -1)
+        if cmd is not None:
+            left, right, status = cmd
+            moving = not (left == 0 and right == 0)
+            col = (0, 210, 0) if moving else (0, 0, 235)
+            tag = "DRIVE" if moving else "STOP"
+            cv2.putText(canvas, tag, (12, 34), cv2.FONT_HERSHEY_SIMPLEX,
+                        1.0, col, 2, cv2.LINE_AA)
+            cv2.putText(canvas, f"L={left:+4d}  R={right:+4d}", (135, 34),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.85, _WHITE, 2, cv2.LINE_AA)
+            cv2.putText(canvas, status, (360, 33), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6, (200, 200, 200), 1, cv2.LINE_AA)
+        cv2.putText(canvas, f"{fps:4.1f} FPS", (w - 150, 34),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, _WHITE, 2, cv2.LINE_AA)
 
     # ---------------------------------------------------------------- camera
     def _draw_camera(
