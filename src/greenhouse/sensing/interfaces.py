@@ -75,3 +75,9 @@ class OdometrySource(Protocol):
 
 class ImuSource(Protocol):
     def read_imu(self) -> ImuSample: ...
+
+
+class BatterySource(Protocol):
+    """Заряд батареи как доля [0..1]. На железе — ADC напряжения с ESP32 / INA219."""
+
+    def read_battery(self) -> float: ...

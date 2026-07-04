@@ -1,0 +1,47 @@
+# robot_localization EKF — сливает лазерную одометрию rf2o (скорость) с курсом BNO085.
+# Выход: TF odom→base_footprint + /odometry/filtered. Это «одометрия без энкодеров»:
+# поступательная скорость с лидара (rf2o), курс/угловая скорость — с IMU (якорь heading,
+# лечит «карту-облако» при поворотах, которая была на чистом scan-matching).
+ekf_filter_node:
+  ros__parameters:
+    frequency: 30.0
+    sensor_timeout: 0.2
+    two_d_mode: true               # плоский робот: z, roll, pitch = 0
+    transform_time_offset: 0.0
+    transform_timeout: 0.0
+    print_diagnostics: true
+    debug: false
+    publish_tf: true
+    publish_acceleration: false
+    reset_on_time_jump: true
+
+    map_frame: map                 # slam_toolbox даёт map→odom
+    odom_frame: odom
+    base_link_frame: base_footprint
+    world_frame: odom              # EKF работает в odom (локальная гладкая поза)
+
+    # --- rf2o: берём ТОЛЬКО скорости (vx, vyaw) — его сильная сторона ---
+    # порядок осей: x y z  roll pitch yaw  vx vy vz  vroll vpitch vyaw  ax ay az
+    odom0: /odom_rf2o
+    odom0_config: [false, false, false,
+                   false, false, false,
+                   true,  false, false,
+                   false, false, true,
+                   false, false, false]
+    odom0_queue_size: 10
+    odom0_differential: false
+    odom0_relative: false
+    odom0_nodelay: true
+
+    # --- BNO085: абсолютный yaw + угловая скорость (якорь курса) ---
+    imu0: /imu/data
+    imu0_config: [false, false, false,
+                  false, false, true,
+                  false, false, false,
+                  false, false, true,
+                  false, false, false]
+    imu0_differential: false
+    imu0_relative: true            # обнулить стартовый курс (нет магнитометра/абс. севера)
+    imu0_queue_size: 10
+    imu0_remove_gravitational_acceleration: true
+    imu0_nodelay: true

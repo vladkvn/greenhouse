@@ -110,28 +110,34 @@ class HectorSlam:
 
     # ------------------------------------------------- scan-to-map (Gauss-Newton)
     def _gn(self, pts, pmap, res, x, y, th):
+        # match_theta=False -> правим только x,y, курс берём с IMU (устойчиво у
+        # вращательно-симметричных объектов, где скан-матчинг по углу неоднозначен).
+        match_theta = self._cfg.hector_match_theta
         for _ in range(self._cfg.hector_iters):
             c, s = math.cos(th), math.sin(th)
             px, py = pts[:, 0], pts[:, 1]
             wx = x + c * px - s * py
             wy = y + s * px + c * py
             M, gx, gy = self._interp(wx, wy, pmap, res)
-            dpx = -s * px - c * py
-            dpy = c * px - s * py
-            J = np.stack([gx, gy, gx * dpx + gy * dpy], axis=1)   # Nx3
             r = 1.0 - M
+            if match_theta:
+                dpx = -s * px - c * py
+                dpy = c * px - s * py
+                J = np.stack([gx, gy, gx * dpx + gy * dpy], axis=1)   # Nx3
+            else:
+                J = np.stack([gx, gy], axis=1)                        # Nx2 (только x,y)
             H = J.T @ J
             b = J.T @ r
-            # Levenberg-Marquardt: демпфирование по диагонали H -> устойчивость к
-            # плохо обусловленным случаям (мало стен/градиента).
-            lm = 1e-2 * np.diag(H) + 1e-4
+            lm = 1e-2 * np.diag(H) + 1e-4   # Levenberg-Marquardt демпфирование
             try:
                 delta = np.linalg.solve(H + np.diag(lm), b)
             except np.linalg.LinAlgError:
                 break
             delta = np.clip(delta, -0.2, 0.2)   # шаг на итерацию
-            x += delta[0]; y += delta[1]; th += delta[2]
-            if abs(delta[0]) + abs(delta[1]) + abs(delta[2]) < 1e-4:
+            x += delta[0]; y += delta[1]
+            if match_theta:
+                th += delta[2]
+            if np.sum(np.abs(delta)) < 1e-4:
                 break
         return x, y, th
 

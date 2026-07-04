@@ -12,3 +12,9 @@ __pycache__/
 .venv/
 *.egg-info/
 dist/
+
+# Build artifacts (arduino firmware / ROS colcon)
+follow-me/firmware_esp32_serial/build/
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/

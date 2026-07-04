@@ -7,12 +7,14 @@
 
 from __future__ import annotations
 
-from typing import Literal, Protocol
+from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
+from greenhouse.control.interfaces import MotionController
 from greenhouse.domain.geometry import Pose2D
-from greenhouse.domain.identifiers import RobotId
+from greenhouse.domain.identifiers import RobotId, ZoneId
+from greenhouse.navigation.keepout import Zone
 from greenhouse.orchestration.modes import RobotMode
 
 # --- Команды (вход оркестратора) ---
@@ -42,7 +44,16 @@ class EmergencyStop(BaseModel, frozen=True):
     kind: Literal["emergency_stop"] = "emergency_stop"
 
 
-Command = StartMapping | GoTo | FollowPerson | GoCharge | Stop | EmergencyStop
+class EditKeepout(BaseModel, frozen=True):
+    """Оператор ставит/снимает закрытую зону на лету (режим не меняется)."""
+
+    kind: Literal["edit_keepout"] = "edit_keepout"
+    op: Literal["add", "remove"]
+    zone: Zone | None = None        # для op="add"
+    zone_id: ZoneId | None = None   # для op="remove"
+
+
+Command = StartMapping | GoTo | FollowPerson | GoCharge | Stop | EmergencyStop | EditKeepout
 """Дискриминированное объединение команд (по полю kind)."""
 
 
@@ -77,3 +88,32 @@ class Behavior(Protocol):
     def mode(self) -> RobotMode: ...
 
     def step(self) -> RobotMode | None: ...
+
+
+@runtime_checkable
+class GoalAccepting(Protocol):
+    """Поведение, принимающее целевую позу (например, NAVIGATING получает её из GoTo)."""
+
+    def set_goal(self, *, goal: Pose2D) -> None: ...
+
+
+class RobotContext(Protocol):
+    """Вид робота, нужный оркестратору и поведениям: режим, привод и телеметрия.
+
+    Структурный контракт (Protocol): и SimRobot, и будущий JetsonRobot удовлетворяют ему,
+    поэтому один оркестратор работает над обоими. Поведения дёргают привод/датчики через
+    эту же абстракцию, а не через конкретного робота.
+    """
+
+    robot_id: RobotId
+    mode: RobotMode
+    motion: MotionController
+
+    @property
+    def battery_frac(self) -> float: ...
+
+    @property
+    def latest_pose(self) -> Pose2D | None: ...
+
+    @property
+    def localization_lost(self) -> bool: ...

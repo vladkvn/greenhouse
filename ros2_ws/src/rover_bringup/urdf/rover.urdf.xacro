@@ -1,0 +1,98 @@
+<?xml version="1.0"?>
+<!--
+  Ровер: ESP32-CAM 4WD skid-steer + RPLIDAR A1 + BNO085.
+  TF: base_footprint → base_link → {laser, imu_link} (+ косметические колёса).
+
+  КАЛИБРОВКА (помечено CALIBRATE) — измерить на конкретном шасси:
+    * laser xyz/rpy — позиция и разворот лидара. У нас лидар развёрнут на 180°
+      (yaw=π) и стоит на 13 см ПОЗАДИ центра (x=-0.13). Этим TF заменяем
+      lidar_mount_offset_deg=180 из follow_me: скан НЕ роллим, geometry правит сам.
+    * imu_link rpy — монтаж BNO085. Если карта/повороты зеркалятся — roll=π.
+    * размеры корпуса/колёс — под Nav2 берётся robot_radius из nav2.yaml, здесь визуал.
+-->
+<robot name="rover" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:property name="base_len"   value="0.20"/>   <!-- CALIBRATE длина корпуса, м -->
+  <xacro:property name="base_wid"   value="0.18"/>   <!-- CALIBRATE ширина (≈ колея) -->
+  <xacro:property name="base_hgt"   value="0.07"/>
+  <xacro:property name="wheel_r"    value="0.0325"/> <!-- CALIBRATE радиус колеса -->
+  <xacro:property name="wheel_w"    value="0.026"/>
+  <xacro:property name="lidar_x"    value="-0.13"/>  <!-- CALIBRATE лидар позади центра -->
+  <xacro:property name="lidar_z"    value="0.10"/>   <!-- CALIBRATE высота лидара -->
+  <xacro:property name="lidar_yaw"  value="${pi}"/>  <!-- CALIBRATE разворот лидара 180° -->
+
+  <material name="grey"><color rgba="0.3 0.3 0.3 1.0"/></material>
+  <material name="black"><color rgba="0.05 0.05 0.05 1.0"/></material>
+  <material name="blue"><color rgba="0.1 0.3 0.8 1.0"/></material>
+
+  <!-- корень на земле под центром оси -->
+  <link name="base_footprint"/>
+
+  <link name="base_link">
+    <visual>
+      <geometry><box size="${base_len} ${base_wid} ${base_hgt}"/></geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry><box size="${base_len} ${base_wid} ${base_hgt}"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="1.5"/>
+      <inertia ixx="0.01" ixy="0.0" ixz="0.0" iyy="0.01" iyz="0.0" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 ${wheel_r + base_hgt/2}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ЛИДАР: разворот 180° + смещение назад зашиты в TF -->
+  <link name="laser">
+    <visual>
+      <geometry><cylinder radius="0.035" length="0.04"/></geometry>
+      <material name="black"/>
+    </visual>
+  </link>
+  <joint name="laser_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="laser"/>
+    <origin xyz="${lidar_x} 0 ${lidar_z - (wheel_r + base_hgt/2)}" rpy="0 0 ${lidar_yaw}"/>
+  </joint>
+
+  <!-- IMU BNO085 -->
+  <link name="imu_link">
+    <visual>
+      <geometry><box size="0.02 0.02 0.005"/></geometry>
+      <material name="blue"/>
+    </visual>
+  </link>
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="0 0 ${base_hgt/2}" rpy="0 0 0"/>  <!-- CALIBRATE: roll=π если yaw зеркалится -->
+  </joint>
+
+  <!-- косметические колёса (для TF/визуала; Nav2 использует robot_radius) -->
+  <xacro:macro name="wheel" params="name x y">
+    <link name="${name}">
+      <visual>
+        <origin rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_r}" length="${wheel_w}"/></geometry>
+        <material name="black"/>
+      </visual>
+    </link>
+    <joint name="${name}_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="${name}"/>
+      <origin xyz="${x} ${y} ${-(base_hgt/2)}" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:wheel name="wheel_fl" x="${base_len/2 - 0.03}" y="${ base_wid/2 + wheel_w/2}"/>
+  <xacro:wheel name="wheel_fr" x="${base_len/2 - 0.03}" y="${-(base_wid/2 + wheel_w/2)}"/>
+  <xacro:wheel name="wheel_rl" x="${-(base_len/2 - 0.03)}" y="${ base_wid/2 + wheel_w/2}"/>
+  <xacro:wheel name="wheel_rr" x="${-(base_len/2 - 0.03)}" y="${-(base_wid/2 + wheel_w/2)}"/>
+
+</robot>

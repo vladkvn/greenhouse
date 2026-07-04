@@ -1,6 +1,7 @@
 """Слой восприятия (датчики)."""
 
 from greenhouse.sensing.interfaces import (
+    BatterySource,
     CameraFrame,
     CameraSource,
     ImuSample,
@@ -9,9 +10,12 @@ from greenhouse.sensing.interfaces import (
     LidarSource,
     Odometry,
     OdometrySource,
+    TargetDetector,
+    TargetObservation,
 )
 
 __all__ = [
+    "BatterySource",
     "CameraFrame",
     "CameraSource",
     "ImuSample",
@@ -20,4 +24,6 @@ __all__ = [
     "LidarSource",
     "Odometry",
     "OdometrySource",
+    "TargetDetector",
+    "TargetObservation",
 ]

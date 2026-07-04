@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from greenhouse.adapters.sim.clock import SimClock
 from greenhouse.adapters.sim.engine import SimEngine
@@ -17,14 +18,19 @@ from greenhouse.adapters.sim.motion import SimMotion
 from greenhouse.adapters.sim.odometry import SimOdometry
 from greenhouse.adapters.sim.state import SimState
 from greenhouse.adapters.sim.world import PolygonWorld
-from greenhouse.domain.geometry import Point2D
+from greenhouse.control.interfaces import MotionController
+from greenhouse.domain.geometry import Point2D, Pose2D
 from greenhouse.domain.identifiers import RobotId
 from greenhouse.navigation.following import PersonFollower
+from greenhouse.navigation.localization import Localizer, PoseEstimate
 from greenhouse.navigation.mapping import ConfidenceGatedMapper, MapBuilder
 from greenhouse.navigation.planning import LocalPlanner
 from greenhouse.orchestration.interfaces import RobotStatus
 from greenhouse.orchestration.modes import RobotMode
-from greenhouse.sensing.interfaces import TargetDetector
+from greenhouse.sensing.interfaces import LidarScan, LidarSource, OdometrySource, TargetDetector
+
+if TYPE_CHECKING:
+    from greenhouse.orchestration.orchestrator import Orchestrator
 
 
 @dataclass
@@ -35,16 +41,32 @@ class SimRobot:
     state: SimState
     clock: SimClock
     engine: SimEngine
-    lidar: SimLidar
-    odometry: SimOdometry
-    localizer: SimTruthLocalizer
-    motion: SimMotion
+    lidar: LidarSource
+    odometry: OdometrySource
+    localizer: Localizer
+    motion: MotionController
     mode: RobotMode = RobotMode.IDLE
     map_builder: MapBuilder | None = None
     local_planner: LocalPlanner | None = None
     person_detector: TargetDetector | None = None
     follower: PersonFollower | None = None
     live_mapper: ConfidenceGatedMapper | None = None  # непрерывная актуализация на ходу
+    orchestrator: Orchestrator | None = None  # если задан — режимом правит единый FSM
+
+    # SimRobot удовлетворяет RobotContext (read-only телеметрия для оркестратора).
+    @property
+    def battery_frac(self) -> float:
+        return self.state.battery_frac
+
+    @property
+    def latest_pose(self) -> Pose2D | None:
+        est = self.localizer.latest()
+        return est.pose if est is not None else None
+
+    @property
+    def localization_lost(self) -> bool:
+        est = self.localizer.latest()
+        return est.is_lost if est is not None else False
 
     def tick(self, *, dt_s: float) -> RobotStatus:
         scan = self.lidar.read_scan()
@@ -57,14 +79,29 @@ class SimRobot:
                 scan=scan, pose=estimate.pose, confidence=estimate.confidence
             )
 
-        # Поведение по режиму. Idle = стоп; Mapping = карта; Navigating = вдоль пути.
+        # Режимом правит либо единый FSM (Orchestrator), либо встроенный диспетчер (legacy).
+        if self.orchestrator is not None:
+            self.orchestrator.tick(dt_s=dt_s)
+        else:
+            self._dispatch_legacy(scan=scan, estimate=estimate)
+
+        self.engine.step(dt_s=dt_s)
+
+        return RobotStatus(
+            robot_id=self.robot_id,
+            mode=self.mode,
+            pose=estimate.pose,
+            battery_frac=self.state.battery_frac,
+            last_error=None if not estimate.is_lost else "localization_lost",
+        )
+
+    def _dispatch_legacy(self, *, scan: LidarScan, estimate: PoseEstimate) -> None:
+        """Встроенный диспетчер режимов (до оркестратора). Idle=стоп; Mapping=карта; Nav=путь."""
         if self.mode is RobotMode.IDLE:
             self.motion.stop()
         elif self.mode is RobotMode.MAPPING and self.map_builder is not None:
             p = estimate.pose
-            self.map_builder.ingest_scan(
-                scan=scan, pose_xytheta=(p.x_m, p.y_m, p.theta_rad)
-            )
+            self.map_builder.ingest_scan(scan=scan, pose_xytheta=(p.x_m, p.y_m, p.theta_rad))
         elif self.mode is RobotMode.NAVIGATING and self.local_planner is not None:
             if self.local_planner.is_goal_reached(pose=estimate.pose):
                 self.motion.stop()
@@ -78,16 +115,6 @@ class SimRobot:
             and self.person_detector is not None
         ):
             self.motion.command(twist=self.follower.update(observation=self.person_detector.detect()))
-
-        self.engine.step(dt_s=dt_s)
-
-        return RobotStatus(
-            robot_id=self.robot_id,
-            mode=self.mode,
-            pose=estimate.pose,
-            battery_frac=self.state.battery_frac,
-            last_error=None if not estimate.is_lost else "localization_lost",
-        )
 
 
 def build_sim_robot(

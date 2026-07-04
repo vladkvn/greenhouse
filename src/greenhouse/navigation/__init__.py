@@ -25,6 +25,7 @@ from greenhouse.navigation.mapping import (
     merge_occupancy,
     nearest_frontier,
 )
+from greenhouse.navigation.navigator import StepwiseNavigator
 from greenhouse.navigation.planning import (
     AStarPlanner,
     GlobalPlanner,
@@ -38,6 +39,7 @@ from greenhouse.navigation.planning import (
     PurePursuitLocalPlanner,
     ReactiveLocalPlanner,
 )
+from greenhouse.navigation.protocols import RobotLike
 
 __all__ = [
     "PersonFollower",
@@ -70,4 +72,6 @@ __all__ = [
     "PlanResult",
     "PurePursuitLocalPlanner",
     "ReactiveLocalPlanner",
+    "StepwiseNavigator",
+    "RobotLike",
 ]

@@ -1,0 +1,13 @@
+# rf2o_laser_odometry — лазерная одометрия из /scan (энкодеров на роботе нет).
+# Публикует nav2_msgs/Odometry в /odom_rf2o. TF НЕ публикует — odom→base_footprint
+# владеет EKF (robot_localization), который сливает rf2o с IMU.
+rf2o_laser_odometry:
+  ros__parameters:
+    laser_scan_topic: /scan
+    odom_topic: /odom_rf2o
+    publish_tf: false              # ВАЖНО: TF даёт EKF, не rf2o
+    base_frame_id: base_footprint
+    odom_frame_id: odom
+    init_pose_from_topic: ''       # стартуем из нуля
+    freq: 10.0                     # Гц расчёта одометрии
+    verbose: false

@@ -49,6 +49,7 @@ def _raycast(h: HectorSlam, xt, yt, tht):
 
 def test_hector_recovers_pose():
     cfg = FollowMeConfig()
+    cfg.hector_match_theta = True
     h = HectorSlam(cfg)
     _make_room(h)
     xt, yt, tht = 5.0, 5.0, 0.3
@@ -67,6 +68,7 @@ def test_hector_recovers_pose():
 
 def test_hector_no_move_when_aligned():
     cfg = FollowMeConfig()
+    cfg.hector_match_theta = True
     h = HectorSlam(cfg)
     _make_room(h)
     xt, yt, tht = 4.5, 5.5, -0.2

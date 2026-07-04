@@ -5,6 +5,7 @@ SimLidar→LidarSource, SimMotion→MotionController, SimTruthLocalizer→Locali
 SimOdometry→OdometrySource, SimClock→Clock.
 """
 
+from greenhouse.adapters.sim.builder import build_orchestrated_sim_robot
 from greenhouse.adapters.sim.charging import SimChargeController
 from greenhouse.adapters.sim.clock import SimClock
 from greenhouse.adapters.sim.engine import SimEngine
@@ -26,6 +27,7 @@ from greenhouse.adapters.sim.worlds import (
 )
 
 __all__ = [
+    "build_orchestrated_sim_robot",
     "SimChargeController",
     "SimClock",
     "SimEngine",

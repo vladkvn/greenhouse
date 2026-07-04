@@ -1,0 +1,11 @@
+# Исходные пакеты, которых нет в apt для Humble/arm64.
+# Импорт:  cd ros2_ws && vcs import src < rover.repos
+repositories:
+  src/sllidar_ros2:
+    type: git
+    url: https://github.com/Slamtec/sllidar_ros2.git
+    version: main
+  src/rf2o_laser_odometry:
+    type: git
+    url: https://github.com/MAPIRlab/rf2o_laser_odometry.git
+    version: ros2

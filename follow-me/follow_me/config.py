@@ -104,6 +104,9 @@ class FollowMeConfig:
     hector_use_imu: bool = True
     hector_imu_sign: int = -1        # знак dtheta IMU в кадр Hector (калибровка)
     hector_use_odom: bool = True
+    # Курс: False -> берём с IMU (scan-matching правит только x,y; устойчиво у колонн,
+    # где угол неоднозначен). True -> GN правит и theta (тест математики гоняет True).
+    hector_match_theta: bool = False
     # Параметры лидара для модели Laser (RPLIDAR A1): точек/скан, Гц, угол обзора, макс. мм.
     slam_scan_size: int = 360
     slam_scan_rate_hz: float = 5.5
