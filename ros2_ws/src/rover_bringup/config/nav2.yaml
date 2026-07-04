@@ -85,12 +85,12 @@ controller_server:
 
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      desired_linear_vel: 0.35
+      desired_linear_vel: 0.20        # медленно — rf2o без энкодеров теряется на скорости
       lookahead_dist: 0.6
       min_lookahead_dist: 0.3
       max_lookahead_dist: 0.9
       lookahead_time: 1.5
-      rotate_to_heading_angular_vel: 1.0
+      rotate_to_heading_angular_vel: 1.2   # ~204 ШИМ: спокойнее полного газа, но выше стикции (проверено телеопом)
       transform_tolerance: 0.2
       use_velocity_scaled_lookahead_dist: false
       min_approach_linear_velocity: 0.05
@@ -100,11 +100,13 @@ controller_server:
       use_regulated_linear_velocity_scaling: true
       use_cost_regulated_linear_velocity_scaling: false
       regulated_linear_scaling_min_radius: 0.9
-      regulated_linear_scaling_min_speed: 0.25
+      regulated_linear_scaling_min_speed: 0.15   # база и так низкая — не душить ещё сильнее на дугах
       use_rotate_to_heading: true          # skid-steer умеет разворот на месте
       allow_reversing: false
       rotate_to_heading_min_angle: 0.785
-      max_angular_accel: 2.0
+      max_angular_accel: 40.0              # ВАЖНО: RPP лимитит разворот от ИЗМЕРЕННОЙ wz; при стоящем
+                                           # роботе (wz≈0) малый accel запирает команду в мёртвой зоне (свист).
+                                           # ≥30 (=1.5рад/с ÷ dt0.05с) → полный разворот за 1 цикл, срыв стикции
       max_robot_pose_search_dist: 10.0
 
 local_costmap:
@@ -207,8 +209,8 @@ behavior_server:
     robot_base_frame: base_footprint
     transform_tolerance: 0.2
     simulate_ahead_time: 2.0
-    max_rotational_vel: 1.0
-    min_rotational_vel: 0.4
+    max_rotational_vel: 1.4          # как в RPP: слабее не проворачивает skid-steer
+    min_rotational_vel: 0.6
     rotational_acc_lim: 2.0
 
 waypoint_follower:

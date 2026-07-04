@@ -73,11 +73,11 @@ def generate_launch_description():
                 "wheel_base": 0.18,        # CALIBRATE
                 "max_linear": 0.4,         # CALIBRATE
                 "max_angular": 1.5,
-                "pwm_max": 220,            # CALIBRATE
+                "pwm_max": 255,            # полный 8-бит: запас на срыв стикции при развороте на месте
                 "pwm_min_move": 120,       # CALIBRATE
                 "cmd_timeout": 0.4,
                 "heartbeat_hz": 15.0,
-                "max_pwm_step": 20,
+                "max_pwm_step": 50,        # резче кик (было 20 — ШИМ слишком долго полз через мёртвую зону)
                 "swap_sides": False,       # CALIBRATE: True если борта перепутаны
             }],
         ),
