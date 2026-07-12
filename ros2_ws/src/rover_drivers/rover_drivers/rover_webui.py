@@ -19,6 +19,7 @@ http://<jetson>:8091.
 from __future__ import annotations
 
 import math
+import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -32,7 +33,8 @@ from nav_msgs.msg import OccupancyGrid, Path
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
-from sensor_msgs.msg import LaserScan
+from sensor_msgs.msg import CompressedImage, LaserScan
+from std_msgs.msg import Bool, String
 from tf2_ros import Buffer, TransformListener
 
 try:  # nav2 может отсутствовать на «сухом» стенде — панель всё равно должна работать
@@ -58,7 +60,9 @@ button:active{background:#0a6}.stop{background:#833}.sp{visibility:hidden}
 <div class=cap>камера робота</div><img id=cam src=/cam.jpg>
 <div class=cap>карта + лидар-скан &mdash; <b>клик = ехать в точку (Nav2)</b></div><img id=v src=/view.jpg>
 <p id=nav>&mdash;</p>
+<button id=followbtn style="height:46px;width:auto;padding:0 22px;font-size:17px;background:#264;border-color:#4a6">&#128694; Follow &mdash; иди за мной</button>
 <button id=navbtn class=stop>&#10006; отмена навигации</button>
+<button id=clrmap style="height:38px;width:auto;padding:0 14px;font-size:14px;margin-top:6px">&#128465; сбросить карту</button>
 <div class=pad>
 <button class="sp"></button><button id=fwd>&#9650;</button><button class="sp"></button>
 <button id=left>&#9664;</button><button id=stop class=stop>&#9632;</button><button id=right>&#9654;</button>
@@ -89,6 +93,8 @@ V.addEventListener('click',e=>{const r=V.getBoundingClientRect();
  if(fx<0||fx>1||fy<0||fy>1)return;
  fetch(`/goal?fx=${fx.toFixed(4)}&fy=${fy.toFixed(4)}`).then(r=>r.text()).then(t=>document.getElementById('nav').textContent=t);});
 document.getElementById('navbtn').addEventListener('click',()=>fetch('/cancel_goal').then(r=>r.text()).then(t=>document.getElementById('nav').textContent=t));
+document.getElementById('followbtn').addEventListener('click',()=>fetch('/follow_toggle').then(r=>r.text()).then(t=>document.getElementById('nav').textContent=t));
+document.getElementById('clrmap').addEventListener('click',()=>{if(confirm('Сбросить карту и перестроить заново?'))fetch('/clear_map').then(r=>r.text()).then(t=>document.getElementById('nav').textContent=t);});
 setInterval(()=>{document.getElementById('cam').src='/cam.jpg?'+Date.now();},200);
 setInterval(()=>{document.getElementById('v').src='/view.jpg?'+Date.now();},500);
 setInterval(()=>fetch('/nav').then(r=>r.text()).then(t=>{document.getElementById('nav').textContent=t;}),700);
@@ -109,6 +115,8 @@ class RoverWebUI(Node):
         self._map: OccupancyGrid | None = None
         self._scan: LaserScan | None = None
         self._plan: Path | None = None
+        self._follow_xy: tuple[float, float] | None = None    # отслеживаемый человек в map
+        self._follow_t = self.get_clock().now()
         self._target = (0.0, 0.0)
         self._last_cmd = self.get_clock().now()
 
@@ -121,12 +129,21 @@ class RoverWebUI(Node):
         self._pending_goal: tuple[float, float] | None = None   # (fx, fy) из клика
         self._pending_cancel = False
 
+        # --- состояние follow ---
+        self._follow_active = False
+        self._follow_state = "off"
+        self._follow_want = False
+
         mapqos = QoSProfile(depth=1)
         mapqos.durability = QoSDurabilityPolicy.TRANSIENT_LOCAL
         mapqos.reliability = QoSReliabilityPolicy.RELIABLE
         self.create_subscription(OccupancyGrid, "/map", self._on_map, mapqos)
         self.create_subscription(LaserScan, "/scan", self._on_scan, 10)
         self.create_subscription(Path, "/plan", self._on_plan, 10)
+        self.create_subscription(PoseStamped, "/follow/target_map", self._on_follow, 10)
+        self.create_subscription(Bool, "/follow/active", self._on_follow_active, 10)
+        self.create_subscription(String, "/follow/state", self._on_follow_state, 10)
+        self._follow_enable_pub = self.create_publisher(Bool, "/follow/enable", 10)
         self._pub = self.create_publisher(Twist, "/cmd_vel", 10)
         self.buf = Buffer()
         TransformListener(self.buf, self)
@@ -136,15 +153,9 @@ class RoverWebUI(Node):
         if _NAV_OK:
             self.create_timer(0.2, self._nav_tick)   # сериализация action-вызовов в spin-поток
 
-        self.declare_parameter("cam_index", 0)
-        self.declare_parameter("cam_enable", True)
+        # Камеру держит camera_node — подписываемся на его кадры (jpeg уже готов, без cv2-захвата)
         self._cam_jpeg: bytes | None = None
-        if bool(self.get_parameter("cam_enable").value):
-            threading.Thread(
-                target=self._cam_loop,
-                args=(int(self.get_parameter("cam_index").value),),
-                daemon=True,
-            ).start()
+        self.create_subscription(CompressedImage, "/camera/image/compressed", self._on_cam, 5)
 
         srv = ThreadingHTTPServer(("0.0.0.0", self.port), self._handler())
         threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -162,44 +173,54 @@ class RoverWebUI(Node):
         with self._lock:
             self._plan = p
 
-    def _cam_loop(self, index: int) -> None:
-        # авто-подбор индекса: /dev/video* плавает, USB-камеры дают 2 ноды (capture+metadata)
-        cap = None
-        for idx in [index, 0, 1, 2, 3]:
-            c = cv2.VideoCapture(idx)
-            if c.isOpened() and c.read()[0]:
-                cap, index = c, idx
-                break
-            c.release()
-        if cap is None:
-            self.get_logger().warn("камера не найдена (индексы 0..3) — панель без видео")
-            return
-        # НИЗКАЯ ЗАДЕРЖКА: MJPG + маленький кадр + буфер=1. Иначе read() отдаёт старые кадры
-        # из внутренней очереди и видео в браузере отстаёт на секунды.
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        try:
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        except Exception:  # noqa: BLE001
-            pass
-        self.get_logger().info(f"камера открыта: index {index}")
-        while rclpy.ok():
-            if not cap.grab():          # grab() держит очередь пустой → всегда свежий кадр
-                time.sleep(0.03)
-                continue
-            ok, frame = cap.retrieve()
-            if not ok:
-                continue
-            h, w = frame.shape[:2]
-            if w > 640:                              # даунскейл для веба
-                frame = cv2.resize(frame, (640, max(1, int(640 * h / w))))
-            # присваивание ссылки атомарно под GIL — без лока, чтобы луп был быстрым
-            self._cam_jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 55])[1].tobytes()
+    def _on_follow(self, m: PoseStamped) -> None:
+        with self._lock:
+            self._follow_xy = (m.pose.position.x, m.pose.position.y)
+            self._follow_t = self.get_clock().now()
+
+    def _on_follow_active(self, m: Bool) -> None:
+        self._follow_active = bool(m.data)
+
+    def _on_follow_state(self, m: String) -> None:
+        self._follow_state = str(m.data)
+
+    def toggle_follow(self) -> str:
+        self._follow_want = not self._follow_want
+        self._follow_enable_pub.publish(Bool(data=self._follow_want))
+        return "🚶 FOLLOW включён — иду за тобой" if self._follow_want else "follow выключен"
+
+    def disable_follow(self) -> None:
+        if self._follow_want:
+            self._follow_want = False
+            self._follow_enable_pub.publish(Bool(data=False))
+
+    def _on_cam(self, msg: CompressedImage) -> None:
+        # камеру держит camera_node; берём готовый jpeg (присваивание ссылки атомарно под GIL)
+        self._cam_jpeg = bytes(msg.data)
+
+    def cam_overlay(self, jpg: bytes) -> bytes:
+        """Зелёная крестовина по центру кадра — для калибровки перекоса камеры.
+        Горизонталь = уровень (сравни с реальным краем пола/двери → roll), вертикаль = ось
+        вперёд (объект строго перед роботом должен лежать на ней → yaw). Только для показа —
+        в кадр YOLO (из camera_node) НЕ впекается."""
+        img = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            return jpg
+        h, w = img.shape[:2]
+        cx, cy = w // 2, h // 2
+        cv2.line(img, (cx, 0), (cx, h), (0, 255, 0), 1)
+        cv2.line(img, (0, cy), (w, cy), (0, 255, 0), 1)
+        step = max(1, w // 8)
+        for x in range(0, w, step):                       # тики по горизонтали — видеть завал
+            cv2.line(img, (x, cy - 5), (x, cy + 5), (0, 255, 0), 1)
+        return cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 70])[1].tobytes()
 
     def set_target(self, lin: float, ang: float) -> None:
+        grabbed = abs(lin) > 1e-3 or abs(ang) > 1e-3
+        if grabbed:
+            self.disable_follow()             # ручное управление отменяет follow
         with self._lock:
-            if (abs(lin) > 1e-3 or abs(ang) > 1e-3) and self._nav_active:
+            if grabbed and self._nav_active:
                 self._pending_cancel = True   # взяли ручное управление → отменяем Nav2
             self._target = (
                 max(-self.max_lin, min(self.max_lin, lin)),
@@ -212,10 +233,21 @@ class RoverWebUI(Node):
             self._target = (0.0, 0.0)
             self._last_cmd = self.get_clock().now()
 
+    def clear_map(self) -> None:
+        # сброс карты отдельным процессом (clear_map.sh: рестарт локализации+slam), не блокирует панель
+        try:
+            subprocess.Popen(
+                ["bash", "/home/luki/ros2_ws/scripts/clear_map.sh"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+            )
+            self.get_logger().info("сброс карты: запущен clear_map.sh")
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().warn(f"не запустить clear_map.sh: {exc}")
+
     def _drive_tick(self) -> None:
         with self._lock:
-            if self._nav_active:
-                return                          # /cmd_vel во власти Nav2 — панель молчит
+            if self._nav_active or self._follow_active:
+                return                          # /cmd_vel во власти Nav2/follow — панель молчит
             lin, ang = self._target
             dt = (self.get_clock().now() - self._last_cmd).nanoseconds * 1e-9
         if dt > 0.4:                            # deadman
@@ -229,6 +261,7 @@ class RoverWebUI(Node):
     def request_goal(self, fx: float, fy: float) -> str:
         if not _NAV_OK:
             return "nav2_msgs недоступен на роботе"
+        self.disable_follow()                 # ручная цель отменяет follow
         with self._lock:
             if self._map is None:
                 return "нет карты — цель поставить некуда"
@@ -354,6 +387,8 @@ class RoverWebUI(Node):
         self._pub.publish(t)
 
     def _nav_text(self) -> str:
+        if self._follow_active:
+            return f"🚶 FOLLOW: {self._follow_state}"
         with self._lock:
             s = self._nav_status
             d = self._nav_dist
@@ -372,6 +407,8 @@ class RoverWebUI(Node):
             s = self._scan
             plan = self._plan
             goal = self._goal_xy
+            follow = self._follow_xy
+            follow_age = (self.get_clock().now() - self._follow_t).nanoseconds * 1e-9
         if m is None:
             img = np.full((280, 280, 3), 55, np.uint8)
             cv2.putText(img, "no /map yet", (40, 145), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
@@ -423,16 +460,30 @@ class RoverWebUI(Node):
             cv2.drawMarker(img, (gx, gy), (255, 0, 255), cv2.MARKER_TILTED_CROSS, 20, 2)
             cv2.circle(img, (gx, gy), 12, (255, 0, 255), 2)
 
-        # робот — ПОВЕРХ увеличенной карты, фикс. размер → всегда крупно и заметно:
-        # красный кружок + белая обводка + толстый луч курса.
+        # человек: ЯРКО «P» когда виден (<1.5с), ТУСКЛО «?» где видели в последний раз (до 20с) —
+        # это же точка, куда follow едет искать
+        fpx = None
+        if follow is not None and follow_age < 20.0:
+            fpx = to_px(follow[0], follow[1])
+            fresh = follow_age < 1.5
+            col = (0, 220, 255) if fresh else (0, 120, 150)
+            cv2.circle(img, fpx, 10, col, -1)
+            cv2.circle(img, fpx, 10, (30, 30, 30), 2)
+            cv2.putText(img, "P" if fresh else "?", (fpx[0] - 5, fpx[1] + 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+
+        # робот — ПОВЕРХ увеличенной карты: красный кружок + белая обводка + СТРЕЛКА курса
+        # (arrowedLine с наконечником — направление читается однозначно).
         try:
             tb = self.buf.lookup_transform("map", "base_footprint", rclpy.time.Time())
             rx, ry = tb.transform.translation.x, tb.transform.translation.y
             ryaw = self._yaw(tb.transform.rotation)
             cx, cy = to_px(rx, ry)
-            ex = int(cx + 26 * math.cos(ryaw))
-            ey = int(cy - 26 * math.sin(ryaw))
-            cv2.line(img, (cx, cy), (ex, ey), (0, 0, 255), 3)
+            if fpx is not None:                              # луч робот→человек — наглядность курса
+                cv2.line(img, (cx, cy), fpx, (0, 220, 255), 1)
+            ex = int(cx + 34 * math.cos(ryaw))
+            ey = int(cy - 34 * math.sin(ryaw))
+            cv2.arrowedLine(img, (cx, cy), (ex, ey), (0, 0, 255), 3, tipLength=0.35)
             cv2.circle(img, (cx, cy), 9, (0, 0, 255), -1)
             cv2.circle(img, (cx, cy), 9, (255, 255, 255), 2)
         except Exception:  # noqa: BLE001
@@ -466,6 +517,8 @@ class RoverWebUI(Node):
                         cv2.putText(img, "no camera", (95, 128),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1)
                         jpg = cv2.imencode(".jpg", img)[1].tobytes()
+                    elif q.get("cross", ["1"])[0] == "1":
+                        jpg = ui.cam_overlay(jpg)      # крестовина для калибровки перекоса
                     self.send_response(200)
                     self.send_header("Content-Type", "image/jpeg")
                     self.send_header("Content-Length", str(len(jpg)))
@@ -485,6 +538,11 @@ class RoverWebUI(Node):
                     self._txt(ui.request_goal(fx, fy))
                 elif p.path == "/cancel_goal":
                     self._txt(ui.request_cancel())
+                elif p.path == "/clear_map":
+                    ui.clear_map()
+                    self._txt("карта сбрасывается — подожди ~15с")
+                elif p.path == "/follow_toggle":
+                    self._txt(ui.toggle_follow())
                 elif p.path == "/nav":
                     self._txt(ui._nav_text())
                 else:

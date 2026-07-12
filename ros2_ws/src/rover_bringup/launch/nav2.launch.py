@@ -6,15 +6,27 @@
 """
 import os
 
+import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch_ros.actions import Node
+from nav2_common.launch import RewrittenYaml
 
 
 def generate_launch_description():
     pkg = get_package_share_directory("rover_bringup")
     params = os.path.join(pkg, "config", "nav2.yaml")
     use_sim_time = {"use_sim_time": False}
+
+    # Футпринт Nav2 — из ЕДИНОГО robot.yaml (не дублируем robot_radius руками в nav2.yaml).
+    # RewrittenYaml подменяет значение КАЖДОГО ключа robot_radius (в local и global costmap).
+    with open(os.path.join(pkg, "config", "robot.yaml")) as _f:
+        _rcfg = yaml.safe_load(_f)
+    configured_params = RewrittenYaml(
+        source_file=params,
+        param_rewrites={"robot_radius": str(float(_rcfg["footprint_radius"]))},
+        convert_types=True,
+    )
 
     lifecycle_nodes = [
         "controller_server",
@@ -30,7 +42,7 @@ def generate_launch_description():
             executable="controller_server",
             name="controller_server",
             output="screen",
-            parameters=[params, use_sim_time],
+            parameters=[configured_params, use_sim_time],
             # контроллер по умолчанию публикует /cmd_vel — его слушает мост ESP32
         ),
         Node(
@@ -38,7 +50,7 @@ def generate_launch_description():
             executable="planner_server",
             name="planner_server",
             output="screen",
-            parameters=[params, use_sim_time],
+            parameters=[configured_params, use_sim_time],
         ),
         Node(
             package="nav2_behaviors",
