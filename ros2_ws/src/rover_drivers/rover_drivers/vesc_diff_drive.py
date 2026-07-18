@@ -329,9 +329,10 @@ class VescDiffDrive(Node):
         return max(-self.max_current, min(self.max_current, cur)), integ
 
     def _drive(self, dt: float) -> None:
-        # простаиваем, когда и цель, и факт ~0 → отпустить моторы, сбросить интегралы
-        idle = (abs(self._cvl) < 1e-3 and abs(self._cvr) < 1e-3
-                and abs(self._mvl) < 0.02 and abs(self._mvr) < 0.02)
+        # Цель ~0 (стоп/таймаут, после рампы) → ОТПУСКАЕМ ток = выбег, не тормозим PI.
+        # Тормозить свободное колесо в ноль нельзя: высоко-Kv мотор без нагрузки уходит в
+        # автоколебания (PI качает ±ток). На полу трение само гасит; на весу — просто катится.
+        idle = abs(self._cvl) < 1e-3 and abs(self._cvr) < 1e-3
         try:
             if idle:
                 self._int_l = self._int_r = 0.0
