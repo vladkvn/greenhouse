@@ -17,8 +17,8 @@ echo ">>> [1/6] глушу всё"
 for p in "[r]f2o" "[e]kf_node" "[a]sync_slam" "[c]ontroller_server" "[p]lanner_server" \
          "[b]t_navigator" "[b]ehavior_server" "[w]aypoint" "[l]ifecycle_manager" \
          "[p]erson_tracker" "[f]ollow_behavior" "[r]over_webui" "[c]amera_node" \
-         "[r]plidar" "[r]obot_state" "[b]no085" "[s]lam[.]launch" "[l]ocalization[.]launch" \
-         "[d]rivers[.]launch" "[n]av2[.]launch"; do pkill -f "$p"; done
+         "[v]esc_diff_drive" "[r]plidar" "[r]obot_state" "[b]no085" "[s]lam[.]launch" \
+         "[l]ocalization[.]launch" "[d]rivers[.]launch" "[n]av2[.]launch"; do pkill -f "$p"; done
 sleep 3
 echo ">>> чищу stale DDS SHM"
 rm -f /dev/shm/fastrtps_* /dev/shm/sem.fastrtps_* 2>/dev/null
@@ -42,10 +42,15 @@ echo ">>> [4/6] Nav2"
 setsid ros2 launch rover_bringup nav2.launch.py > ~/nav2.log 2>&1 < /dev/null &
 echo ">>> [5/6] панель"
 setsid ros2 run rover_drivers rover_webui > ~/webui.log 2>&1 < /dev/null &
-echo ">>> [6/6] восприятие: person(venv) + follow"
-setsid bash -c "unset PYTHONNOUSERSITE; exec $VENV -m rover_drivers.person_tracker \
-  --ros-args -p model_path:=$MODEL -p conf:=0.4 -p rate_hz:=12.0" > ~/person.log 2>&1 < /dev/null &
-setsid ros2 run rover_drivers follow_behavior > ~/follow.log 2>&1 < /dev/null &
+# Восприятие (person+follow, YOLO) — тяжёлое, OOM-риск: только по аргументу 'follow'
+if [ "${1:-}" = "follow" ]; then
+  echo ">>> [6/6] восприятие: person(venv) + follow"
+  setsid bash -c "unset PYTHONNOUSERSITE; exec $VENV -m rover_drivers.person_tracker \
+    --ros-args -p model_path:=$MODEL -p conf:=0.4 -p rate_hz:=12.0" > ~/person.log 2>&1 < /dev/null &
+  setsid ros2 run rover_drivers follow_behavior > ~/follow.log 2>&1 < /dev/null &
+else
+  echo ">>> [6/6] восприятие ПРОПУЩЕНО (запусти 'bash rover_up_full.sh follow' чтобы включить)"
+fi
 sleep 16
 
 echo "======================================================"

@@ -368,8 +368,10 @@ class VescDiffDrive(Node):
         erpm_r, tach_r = vr
         mvl = self._speed(erpm_l) * self.sign_l
         mvr = self._speed(erpm_r) * self.sign_r
-        self._mvl, self._mvr = mvl, mvr        # для PI-регулятора
-        vx = (mvl + mvr) / 2.0
+        a = 0.35                               # ФНЧ на измеренную скорость → глаже PI (меньше рывков от шума eRPM)
+        self._mvl = a * mvl + (1.0 - a) * self._mvl
+        self._mvr = a * mvr + (1.0 - a) * self._mvr
+        vx = (mvl + mvr) / 2.0                 # /odom — по СЫРОЙ скорости (точность одометрии)
         wz = (mvr - mvl) / self.track
         self.get_logger().debug(
             f"READ Lerpm={erpm_l:.0f} Rerpm={erpm_r:.0f} vx={vx:.2f} wz={wz:.2f}",

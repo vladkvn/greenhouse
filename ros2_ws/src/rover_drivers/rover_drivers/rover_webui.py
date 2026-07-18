@@ -250,8 +250,10 @@ class RoverWebUI(Node):
                 return                          # /cmd_vel во власти Nav2/follow — панель молчит
             lin, ang = self._target
             dt = (self.get_clock().now() - self._last_cmd).nanoseconds * 1e-9
-        if dt > 0.4:                            # deadman
-            lin, ang = 0.0, 0.0
+        if dt > 0.6:                            # давно нет команд → МОЛЧИМ, а не шлём нули 15Гц:
+            return                              # иначе дерёмся с Nav2/др. публишерами. Стоп сделает
+        if dt > 0.4:                            # deadman узла (выбег). А тут — краткий активный стоп
+            lin, ang = 0.0, 0.0                 # сразу после отпускания (0.4–0.6с шлём нули), потом тишина.
         t = Twist()
         t.linear.x = float(lin)
         t.angular.z = float(ang)
