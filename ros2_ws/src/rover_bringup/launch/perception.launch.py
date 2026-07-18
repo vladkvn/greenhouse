@@ -1,5 +1,7 @@
 """Восприятие + follow ровера: person_tracker (детекция → поза в карте) + follow_behavior (FSM).
-[+ позже depth].
+
+Камерную глубину-препятствия (Depth Anything) сняли — ближние помехи теперь на УЗ-датчиках
+(esp32-sensor-remote), лидар держит карту. На Jetson остаётся ОДНА сеть — YOLO (person), и только в follow.
 
 ДВА нюанса запуска person_tracker (иначе не заведётся):
   1. Интерпретатор — venv ~/greenhouse/.venv/bin/python: там torch, ultralytics лежит в
@@ -17,7 +19,6 @@ from launch_ros.actions import Node
 
 VENV_PY = "/home/luki/greenhouse/.venv/bin/python"
 MODEL = "/home/luki/greenhouse/models/yolo11n.engine"
-DA_MODEL = "/home/luki/greenhouse/models/da_v2_small.onnx"
 
 
 def generate_launch_description():
@@ -25,13 +26,8 @@ def generate_launch_description():
         f"unset PYTHONNOUSERSITE; exec {VENV_PY} -m rover_drivers.person_tracker "
         f"--ros-args -p model_path:={MODEL} -p conf:=0.4 -p rate_hz:=12.0"
     )
-    depth = (
-        f"unset PYTHONNOUSERSITE; exec {VENV_PY} -m rover_drivers.depth_obstacles "
-        f"--ros-args -p model_path:={DA_MODEL} -p rate_hz:=4.0"
-    )
     return LaunchDescription([
         ExecuteProcess(cmd=["bash", "-c", person], output="screen", name="person_tracker"),
-        ExecuteProcess(cmd=["bash", "-c", depth], output="screen", name="depth_obstacles"),
         Node(
             package="rover_drivers",
             executable="follow_behavior",

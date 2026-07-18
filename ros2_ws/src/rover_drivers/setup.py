@@ -21,11 +21,11 @@ setup(
         "console_scripts": [
             "esp32_cmd_vel_bridge = rover_drivers.esp32_cmd_vel_bridge:main",
             "vesc_diff_drive = rover_drivers.vesc_diff_drive:main",
+            "esp32_sensor_bridge = rover_drivers.esp32_sensor_bridge:main",
             "bno085_imu_node = rover_drivers.bno085_imu_node:main",
             "rplidar_scan_node = rover_drivers.rplidar_scan_node:main",
             "camera_node = rover_drivers.camera_node:main",
             "person_tracker = rover_drivers.person_tracker:main",
-            "depth_obstacles = rover_drivers.depth_obstacles:main",
             "follow_behavior = rover_drivers.follow_behavior:main",
             "rover_webui = rover_drivers.rover_webui:main",
         ],
