@@ -17,6 +17,8 @@ def generate_launch_description():
     pkg = get_package_share_directory("rover_bringup")
     params = os.path.join(pkg, "config", "nav2.yaml")
     use_sim_time = {"use_sim_time": False}
+    # Кастомный BT: recovery отъезжает назад ПЕРЕД разворотом (не цепляет углы в тесноте).
+    bt_xml = os.path.join(pkg, "behavior_trees", "navigate_backup_recovery.xml")
 
     # Футпринт Nav2 — из ЕДИНОГО robot.yaml (не дублируем robot_radius руками в nav2.yaml).
     # RewrittenYaml подменяет значение КАЖДОГО ключа robot_radius (в local и global costmap).
@@ -64,7 +66,8 @@ def generate_launch_description():
             executable="bt_navigator",
             name="bt_navigator",
             output="screen",
-            parameters=[params, use_sim_time],
+            parameters=[params, use_sim_time,
+                        {"default_nav_to_pose_bt_xml": bt_xml}],
         ),
         Node(
             package="nav2_waypoint_follower",

@@ -71,7 +71,7 @@ button:active{background:#0a6}.stop{background:#833}.sp{visibility:hidden}
 <p class=cap>WASD/стрелки (удерживать) или кнопки &mdash; ручной режим отменяет Nav2 · красная точка = робот · &#10006; фиолетовый = цель</p>
 <p id=st>&mdash;</p>
 <script>
-const LIN=0.16, ANG=1.4; let iv=null;
+const LIN=0.30, ANG=1.2; let iv=null;   // ещё ×1.5; комбо WASD → езда по дуге
 function drive(l,a){fetch(`/drive?lin=${l}&ang=${a}`).then(r=>r.text()).then(t=>document.getElementById('st').textContent=t);}
 function stop(){if(iv){clearInterval(iv);iv=null;}fetch('/stop');}
 function hold(el,l,a){
@@ -82,10 +82,12 @@ function hold(el,l,a){
 hold(document.getElementById('fwd'),LIN,0);hold(document.getElementById('back'),-LIN,0);
 hold(document.getElementById('left'),0,ANG);hold(document.getElementById('right'),0,-ANG);
 document.getElementById('stop').addEventListener('click',stop);
+// комбо-клавиши: держим НАБОР нажатых, суммируем вклад в lin (W/S) и ang (A/D) → едем по дуге
 const km={w:[LIN,0],s:[-LIN,0],a:[0,ANG],d:[0,-ANG],ArrowUp:[LIN,0],ArrowDown:[-LIN,0],ArrowLeft:[0,ANG],ArrowRight:[0,-ANG]};
-let pk=null;
-document.addEventListener('keydown',e=>{const k=km[e.key];if(!k)return;e.preventDefault();if(pk===e.key)return;pk=e.key;drive(k[0],k[1]);if(iv)clearInterval(iv);iv=setInterval(()=>drive(k[0],k[1]),150);});
-document.addEventListener('keyup',e=>{if(!km[e.key])return;e.preventDefault();if(pk===e.key){pk=null;stop();}});
+const held=new Set();
+function tick(){let l=0,a=0;held.forEach(k=>{const m=km[k];if(m){l+=m[0];a+=m[1];}});drive(l,a);}
+document.addEventListener('keydown',e=>{if(!km[e.key])return;e.preventDefault();if(held.has(e.key))return;held.add(e.key);if(!iv)iv=setInterval(tick,150);tick();});
+document.addEventListener('keyup',e=>{if(!km[e.key])return;e.preventDefault();held.delete(e.key);if(held.size===0){if(iv){clearInterval(iv);iv=null;}stop();}else tick();});
 // клик по карте → цель Nav2 (доля ширины/высоты картинки, сервер сам переведёт в кадр map)
 const V=document.getElementById('v');
 V.addEventListener('click',e=>{const r=V.getBoundingClientRect();
